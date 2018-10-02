@@ -1,0 +1,17 @@
+table.class-codes th {
+    white-space: pre-wrap;
+}
+.no-specific-field {
+    display: flex;
+    white-space: nowrap;
+}
+.no-specific-field {
+    display: flex;
+    white-space: nowrap;
+}
+.no-specific-field > input {
+    margin: 3px;
+}
+.ui-widget-overlay {
+    opacity: .3;
+}
