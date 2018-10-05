@@ -1,10 +1,10 @@
 import * as React from "react";
 import { ajaxCache, ajaxFeed, ajaxRequired } from "../api/ajaxCache";
-import { ProxyUtils } from "../api/proxy";
+import { ProxyUtils, IArfSet } from "../api/proxy";
 import { CoreCommVsProxy } from "../gen/impl/com.arrow.model.def.corecomm";
 import { com } from "../gen/definitions";
 import { Editbox, Dropdown, EditboxMoney, Radiolist, ValidationLabel, enumChoiceMaker, TabComponent, Checkbox } from "../api/generics";
-import { Field, ChoiceInfo, required, ContextModel } from "../api/dfe-stream";
+import { Field, ChoiceInfo, required, ContextModel, PipeNode, LogicNode, Pick, Omit } from "../api/dfe-stream";
 import { Pipe, Proxify, SwitchPipe } from "../api/react-connect";
 
 import "../../../resources/dfe-style.css";
@@ -179,7 +179,7 @@ const LocationTabComponent = Pipe({get: (root: ICoreCommVs) => root.policy.cmauS
     />
 )
 
-const LocationHeaderComponent = Pipe<ICoreCommCmauLocationVs>({errorwatch: { target: "peers", accept: () => "error"}})(props =>
+const LocationHeaderComponent = Pipe<ICoreCommCmauLocationVs>({errorwatch: "peers"})(props =>
     <div className="div-button">
         <label className="div-button-text">
             <a style={{color: "#444"}}>{`Location #${props.data.p.locationList.indexOf(props.data) + 1}`}</a><br/>
@@ -217,12 +217,7 @@ const CarTabComponent = Pipe({get: (loc: ICoreCommCmauLocationVs) => loc.cars})(
     />
 )
 
-const CarHeaderComponent = Pipe<ICoreCommCmauCarVs>({
-    val: (_, model, context) => {
-
-    }
-    //errorwatch: { target: "peers", accept: () => "error"}
-})(props =>
+const CarHeaderComponent = Pipe<ICoreCommCmauCarVs>({errorwatch: "peers"})(props =>
     <div className="div-button">
         <label className="div-button-text">
             {`${props.data.p.state} - Vehicle #${props.data.p.cars.indexOf(props.data) + 1}`}<br/>{`${props.data.modelYr} ${props.data.make}`}

@@ -25,7 +25,7 @@ typeof cachePrimer === 'object' && Array.isArray(cachePrimer) && cachePrimer.for
 (async () => {
     let formName = "quote.cmau.car";
     let { FormComponent, form, modelImpl } = await import("./forms/" + formName);
-    let jsonModel = require("../../test/model.json"), logic: LogicProcessor;
+    let jsonModel = require("../../test/100cars.json"), logic: LogicProcessor;
 
     ReactDOM.render(<FormComponent model = {(logic = new LogicProcessor(ProxyUtils.castAs(jsonModel, modelImpl), form, false)).rootModel}/>, node);
     validateButton.addEventListener('click', () => {

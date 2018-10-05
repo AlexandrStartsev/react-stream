@@ -1,6 +1,7 @@
 import { IArfSet, ModelProxy, Listener, Watcher, ListenerEvent } from "./proxy";
 
 export type Diff<T extends string | number | symbol, U extends string | number | symbol> = ({[P in T]: P } & {[P in U]: never } & { [x: string]: never })[T];  
+export type Pick<T, K extends keyof T> = {[P in K]: T[P]}
 export type Omit<T, K extends keyof T> = Pick<T, Diff<keyof T, K>>;
 
 
@@ -47,10 +48,10 @@ export class ContextModel<M=IArfSet> {
                 }
                 error = typeof validationResult === 'string' ? validationResult : '';
             }
-            node.accept(data, error);
+            node.accept(data, error, null);
         } else {
             if(error !== undefined) {
-                node.accept(node.lastData, error);
+                node.accept(node.lastData, error, null);
             }
         }
     }
@@ -59,7 +60,7 @@ export class ContextModel<M=IArfSet> {
     }                
     destroy() {
         this.$await = null;
-        this.$model.$listener.undepend();
+        this.$model.$$proxy_internal.listener.undepend();
     }
     await<T>(promise: Promise<T>, onSuccess?: (data: T, context: this) => T, onReject?: (reason: any, context: this) => void): void {
         this.$await = promise.then( a => (this.$await = null, onSuccess && onSuccess(a, this)), b => (this.$await = null, onReject && onReject(b, this)) );
@@ -95,14 +96,12 @@ export class Field<P extends IArfSet, D=P> {
 }
 
 export interface PipeNode {
-    terminated?: boolean
-    lastData?: any
-    lastError?: string
-    source?: PipeNode
-    consumer?: PipeNode[]
-    accept(data: any, error?: string): any
-    terminate(): any
-    //follow(target: PipeNode): any
+    readonly terminated?: boolean
+    accept(data: any, error: string, producer: PipeNode): any
+    subscribe(consumer: PipeNode): void
+    terminate(): void
+    unsubscribe(consumer: PipeNode): void
+    unsubscribeFrom(producer: PipeNode): void
 }
 
 export class LogicNode implements PipeNode, Watcher {
@@ -113,7 +112,7 @@ export class LogicNode implements PipeNode, Watcher {
     field: Field<any, any>
     terminated: boolean
     //source: PipeNode TODO: chain
-    consumer: PipeNode[] = [] // TODO: multiple consumers
+    consumers: PipeNode[] = [] // TODO: multiple consumers
     runtime: LogicProcessor
     notifications?: ListenerEvent[] = []
     lastNotifications: ListenerEvent[]
@@ -137,7 +136,7 @@ export class LogicNode implements PipeNode, Watcher {
         }
         return this;
     }
-    accept(data: any, error?: string) {
+    accept(data: any, error: string, producer: PipeNode) {
         if(!this.terminated) {
             let childrenFields = this.field.children;
             if(data !== undefined) {
@@ -150,7 +149,7 @@ export class LogicNode implements PipeNode, Watcher {
                 }
                 this.lastData = data;
                 this.lastError = error;
-                this.consumer.forEach(c => c.accept(data, error));
+                this.consumers.forEach(c => c.accept(data, error, this));
                 this.runtime.scheduleWork(this);
             } else {
                 this.lastError = error;
@@ -158,7 +157,6 @@ export class LogicNode implements PipeNode, Watcher {
         }
     }
     terminate() {
-        //this.control.destroy();
         if(!this.terminated) {
             this.context.destroy();
             if(this.parent) {
@@ -170,9 +168,20 @@ export class LogicNode implements PipeNode, Watcher {
                 this.parent = null;
             }
             this.terminated = true;
-            this.consumer.forEach(c => c.terminate());
-            this.consumer = null;
+            this.consumers.forEach(c => c.unsubscribeFrom(this));
         }
+    }
+    subscribe(consumer: PipeNode) {
+        if(!this.terminated && this.consumers.indexOf(consumer) == -1) {
+            this.consumers.push(consumer);
+            this.lastData !== undefined && consumer.accept(this.lastData, this.lastError, this);
+        }
+    }
+    unsubscribe(consumer: PipeNode) {
+        this.consumers.splice(this.consumers.indexOf(consumer), 1);
+    }
+    unsubscribeFrom(producer: PipeNode) {
+        // no-op for now 
     }
 }
 
@@ -265,7 +274,6 @@ export class LogicProcessor<M={}> {
     }
     evictNode(node: LogicNode) {
         delete node.lastError;
-        node.terminated = true;
         node.children.forEach(fieldMap => fieldMap.forEach( node => this.evictNode(node)));
         node.terminate();
     }

@@ -20,7 +20,7 @@ const client = {
   entry: {
     loader: './src/ts/loader.tsx'
   },
-  mode: "development",
+  mode: "production",
   plugins: [
     new CleanWebpackPlugin(["target/webpack"]), 
     new HtmlWebpackPlugin({ title: "Pipe stream" }),
@@ -92,7 +92,7 @@ const server = {
   entry: {
     listener: "./src/ts/listener.ts"
   },
-  mode: "development",
+  mode: "production",
   plugins: [
     //new webpack.optimize.LimitChunkCountPlugin({maxChunks: 1}),
     new CleanWebpackPlugin(['target/nodejs']),
