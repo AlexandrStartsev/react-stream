@@ -19,7 +19,7 @@ class Proxified<M extends IArfSet, P extends {model: M}, S={}, SS=any, X={}> ext
     }
 
     componentWillUnmount() {
-        this.$model instanceof ModelProxy && this.$model.$listener.undepend();
+        this.$model instanceof ModelProxy && this.$model.$$proxy_internal.listener.undepend();
         this.$model = null;
     }
 
@@ -96,7 +96,7 @@ class Connected<M extends IArfSet, P extends {model: M, context?: AsyncContextBa
     }
     componentWillUnmount() {
         this.source && (this.source.consumer = null)
-        this.state.model.$listener.undepend();
+        this.state.model.$$proxy_internal.listener.undepend();
     }
 
     shouldComponentUpdate(nextProps: Readonly<P>): boolean {

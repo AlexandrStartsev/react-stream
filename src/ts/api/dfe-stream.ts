@@ -80,7 +80,7 @@ export class ContextModel<M> implements AsyncContextBase {
     }                
     destroy() {
         this.$await = null;
-        this.$model.$listener.undepend();
+        this.$model.$$proxy_internal.listener.undepend();
     }
     await<T>(promise: Promise<T>, onSuccess?: (data: T, context: this) => T, onReject?: (reason: any, context: this) => void): void {
         this.$await = promise.then( a => (this.$await = null, onSuccess && onSuccess(a, this)), b => (this.$await = null, onReject && onReject(b, this)) );
