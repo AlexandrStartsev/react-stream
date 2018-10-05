@@ -72,8 +72,8 @@ export class Listener {
         if(model) {
             let p;
             if(model instanceof ModelProxy) {
-                for(p = model; p.$$proxy_internal.parent; p = p.$$proxy_internal.parent) ;
-                p = p.$$proxy_internal.data; // $persisted ?
+                for(p = model; p.$parent; p = p.$parent) ;
+                p = p.$data; // $persisted ?
             } else {
                 for(p = model; p.p; p = p.p) ;
             }
@@ -117,11 +117,11 @@ export class Listener {
         return true;
     }
     /*set(proxy: ModelProxy<any>, element: string, value: any, action: string) { 
-        if(proxy.$$proxy_internal.data[element] != value) { proxy.$$proxy_internal.data[element] = value; this.notify(proxy.key, element, action) }; return true; 
+        if(proxy.$data[element] != value) { proxy.$data[element] = value; this.notify(proxy.key, element, action) }; return true; 
     }
     get(proxy: ModelProxy<any>, element: string) { 
         this.depend(proxy.key, element); 
-        return proxy.$$proxy_internal.data[element]; 
+        return proxy.$data[element]; 
     }*/
 }
 
@@ -141,7 +141,7 @@ export class ModelProxyArray<P extends ModelProxy<T>, T> extends Array<P> {
             super(parent);
         } else {
             super();
-            Array.prototype.push.apply(this, (<Array<T>>parent.get(parentCollection) || []).map(item => new clazz(item, parent, parentCollection, false, parent.$$proxy_internal.listener)));
+            Array.prototype.push.apply(this, (<Array<T>>parent.get(parentCollection) || []).map(item => new clazz(item, parent, parentCollection, false, parent.$listener)));
         }
         this.$parent = parent;
         this.$parentCollection = parentCollection;
@@ -151,17 +151,17 @@ export class ModelProxyArray<P extends ModelProxy<T>, T> extends Array<P> {
     push(...items: (P|T)[]): number {
         return Array.prototype.push.apply(this, 
             items.map( item => {
-                let proxy = (new this.$clazz(<T>{}, this.$parent, this.$parentCollection, false, this.$parent.$$proxy_internal.listener));
+                let proxy = (new this.$clazz(<T>{}, this.$parent, this.$parentCollection, false, this.$parent.$listener));
                 ProxyUtils.copy(proxy, item);
-                this.$parent.append(this.$parentCollection, false, proxy.$$proxy_internal.data);
+                this.$parent.append(this.$parentCollection, false, proxy.$data);
                 return proxy;
             })
         );
     }
     shadow(item?: P|T): P {
-        let proxy = (new this.$clazz(<T>{}, this.$parent, this.$parentCollection, false, this.$parent.$$proxy_internal.listener));
+        let proxy = (new this.$clazz(<T>{}, this.$parent, this.$parentCollection, false, this.$parent.$listener));
         typeof item === 'object' && ProxyUtils.copy(proxy, item);
-        proxy.$$proxy_internal.persisted = null;
+        proxy.$persisted = null;
         return proxy;
     }
     pop(): P { throw "Unsupported"; }
@@ -173,65 +173,54 @@ export class ModelProxyArray<P extends ModelProxy<T>, T> extends Array<P> {
     fill(): this { throw "Unsupported"; }
     copyWithin(): this { throw "Unsupported"; }
     indexOf(item: P)  {
-        return item instanceof ModelProxy ? [].indexOf.call(this.map(a => a.$$proxy_internal.data), item.$$proxy_internal.data) : -1;
+        return item instanceof ModelProxy ? [].indexOf.call(this.map(a => a.$data), item.$data) : -1;
     }
-}
-
-interface ProxyInternal {
-    data: {[index: string]: any}
-    persisted: {}
-    parent?: ModelProxy<any>
-    listener? : Listener
-    parentCollection: string
-    single: boolean
 }
 
 export class ModelProxy<T extends IArfSet & {[index: string]: any}> implements IArfSet {
-    readonly $$proxy_internal: ProxyInternal
+    $data: {[index: string]: any}
+    $persisted: {}
+    $parent?: ModelProxy<any>
+    $listener? : Listener
+    $parentCollection: string
+    $single: boolean
 
     constructor(data: {}, parent?: ModelProxy<any>, parentCollection?: string, single?: boolean, listener?: Listener) {
-        let lst: ProxyInternal;
-        Object.defineProperty(this, "$$proxy_internal", {
-            enumerable: false, 
-            value: lst = {
-                persisted: data,
-                data: <T>(data||{}),
-                parent: parent||null,
-                listener: null,
-                single: single===undefined?true:single,
-                parentCollection: parentCollection||''
-            }
-        })
-        lst.listener = listener||new Listener(this);
+        this.$persisted = data;
+        this.$data = <T>(data||{});
+        this.$parent = parent||null;
+        this.$listener = listener||new Listener(this);
+        this.$single = single===undefined?true:single;
+        this.$parentCollection = parentCollection||'';
     }
     @Enumerable(false)
     get key(): number {
-        let data = this.$$proxy_internal.data as any, key = data.key;
+        let data = this.$data as any, key = data.key;
         key || Object.defineProperty(data, 'key', {enumerable: false, value: key = ModelProxyKeygey()});
         return key;
     }
     @Enumerable(false)
     get p() {
-        return this.$$proxy_internal.parent.forWatcher(this.$$proxy_internal.listener.node);
+        return this.$parent.forWatcher(this.$listener.node);
     }
     @Enumerable(false)
     forWatcher(watcher?: Watcher): this {
-        let int = this.$$proxy_internal, ctor = this.constructor as new (data: {}, parent: ModelProxy<any>, parentCollection: string, single: boolean, listener: Listener) => this;
-        let ret = new ctor(int.data, int.parent, int.parentCollection, int.single, new Listener(int.listener, watcher));
-        int.persisted = int.persisted;
+        let ctor = this.constructor as new (data: {}, parent: ModelProxy<any>, parentCollection: string, single: boolean, listener: Listener) => this;
+        let ret = new ctor(this.$data, this.$parent, this.$parentCollection, this.$single, new Listener(this.$listener, watcher));
+        this.$persisted = this.$persisted;
         return ret;
     }
     @Enumerable(false)
     get(element: string): any {
-        this.$$proxy_internal.listener.depend(this.key, element);
-        return this.$$proxy_internal.data[element];
+        this.$listener.depend(this.key, element);
+        return this.$data[element];
     }
     @Enumerable(false)
     getSubset<C extends IArfSet, P extends ModelProxy<C>>(element: string, proxyClass: new (data: C, parent: ModelProxy<any>, parentCollection: string, single: boolean, listener: Listener) => P): P {
         if(element) {
-            return new proxyClass( this.get(element), this, element, true, this.$$proxy_internal.listener );
+            return new proxyClass( this.get(element), this, element, true, this.$listener );
         }
-        return new proxyClass( <any>this.$$proxy_internal.data, this, null, true, this.$$proxy_internal.listener );
+        return new proxyClass( <any>this.$data, this, null, true, this.$listener );
     }
     @Enumerable(false)
     getSublist<C extends IArfSet, P extends ModelProxy<C>>(element: string, proxyClass: new (data: C, parent: ModelProxy<any>, parentCollection: string, single: boolean, listener: Listener) => P): Array<P> {
@@ -240,70 +229,66 @@ export class ModelProxy<T extends IArfSet & {[index: string]: any}> implements I
     @Enumerable(false)
     append(element: string, single?: boolean, data?: any) {
         this.persist();
-        let int = this.$$proxy_internal;
         if(element) {
             if(single) {
-                let obj: {} =int.data[ element ];
+                let obj: {} =this.$data[ element ];
                 if( !obj || typeof obj !== 'object' ) {
-                    obj = int.data[ element ] = data||{};
-                    int.listener.notify(this.key, element, 'a');
+                    obj = this.$data[ element ] = data||{};
+                    this.$listener.notify(this.key, element, 'a');
                 } else {
                     // TODO: merge ? 
                 }
                 return obj;
             } else {
-                let arr: any[] = int.data[ element ], obj = data||{};
+                let arr: any[] = this.$data[ element ], obj = data||{};
                 if( ! Array.isArray(arr) ) {
-                    int.data[ element ] = arr = [];
+                    this.$data[ element ] = arr = [];
                 }
                 arr.push(obj);
-                int.listener.notify(this.key, element, 'a');
+                this.$listener.notify(this.key, element, 'a');
                 return obj;
             }
         }
-        return int.data;
+        return this.$data;
     }
     @Enumerable(false)
     set(element: string, value?: any) {
-        let int = this.$$proxy_internal;
         if(value === undefined || value === null || value === '') {
-            if(int.data.hasOwnProperty(element)) {
-                delete int.data[element];
-                int.listener.notify(this.key, element, 'd');
+            if(this.$data.hasOwnProperty(element)) {
+                delete this.$data[element];
+                this.$listener.notify(this.key, element, 'd');
             }
         } else {
             this.persist();
-            if(int.data[element] !== value) {
-                int.data[element] = value;
-                int.listener.notify(this.key, element, 'm');
+            if(this.$data[element] !== value) {
+                this.$data[element] = value;
+                this.$listener.notify(this.key, element, 'm');
             }
         }
         return value;
     }
     @Enumerable(false)
     persist() {
-        let int = this.$$proxy_internal;
-        if(this.isShadow() && int.parent) {
+        if(this.isShadow() && this.$parent) {
             // TODO: merge ? 
-            int.persisted = int.data = int.parent.append(int.parentCollection, int.single, int.data);
+            this.$persisted = this.$data = this.$parent.append(this.$parentCollection, this.$single, this.$data);
         }
     }
     @Enumerable(false)
     detach() {
-        let int = this.$$proxy_internal;
-        if(int.parent) {
-            if(int.persisted) {
-                if(int.parentCollection) {
-                    let collection: {}[] = int.parent.$$proxy_internal.data[int.parentCollection];
+        if(this.$parent) {
+            if(this.$persisted) {
+                if(this.$parentCollection) {
+                    let collection: {}[] = this.$parent.$data[this.$parentCollection];
                     if(collection) {
-                        collection.splice(collection.indexOf(int.persisted), 1);
-                        collection.length || delete int.parent.$$proxy_internal.data[int.parentCollection];
-                        int.listener.notify(int.parent.key, int.parentCollection, 'r');
+                        collection.splice(collection.indexOf(this.$persisted), 1);
+                        collection.length || delete this.$parent.$data[this.$parentCollection];
+                        this.$listener.notify(this.$parent.key, this.$parentCollection, 'r');
                     }
                 } else {
-                    int.parent.detach();
+                    this.$parent.detach();
                 }
-                int.persisted = undefined;
+                this.$persisted = undefined;
             }
         } else {
             throw 'attempt to detach root';
@@ -311,11 +296,11 @@ export class ModelProxy<T extends IArfSet & {[index: string]: any}> implements I
     }
     @Enumerable(false)
     isShadow() {
-        return !this.$$proxy_internal.persisted;
+        return !this.$persisted;
     }
     @Enumerable(false)
     hasChild(other: ModelProxy<any>): boolean {
-        for(; other && this.$$proxy_internal.data !== other.$$proxy_internal.data; other = other.$$proxy_internal.parent) {}
+        for(; other && this.$data !== other.$data; other = other.$parent) {}
         return !!other;
     }
 }
@@ -342,7 +327,7 @@ export namespace ProxyUtils {
     }
 
     export function unwrap<T>(src: T): T {
-        return src instanceof ModelProxy ? src.$$proxy_internal.data as T : src;
+        return src instanceof ModelProxy ? src.$data as T : src;
     }
 
     export function wrapAs<T>(data: {}, proto: T|T[]): T {
@@ -383,7 +368,7 @@ export namespace ProxyUtils {
         const writeEmpty = !(_src instanceof ModelProxy);
         const prefix = deleteMissing ? '$_r_' : '$_c_';
         for(const prop in dest) {
-            if(prop !== "constructor") { // how to make constructor non-enumerable ?
+            if(prop !== "constructor" && prop.charAt(0) != '$') {
                 const func = dest[prefix + prop];
                 if( typeof func === 'function' ) {
                     src[prop] === "undefined" ? deleteMissing && func.call(dest) : func.call(dest, src[prop]);

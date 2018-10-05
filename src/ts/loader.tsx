@@ -39,6 +39,6 @@ typeof cachePrimer === 'object' && Array.isArray(cachePrimer) && cachePrimer.for
             method: "POST",
             success: (e) => console.log("server: ", e)
         });
-        logic.enforceValidation(() => console.log("client: ", logic.nodes.filter(n => !!n.lastError).map(n => n.lastError)))
+        logic.enforceValidation().then(l => console.log("client: ", l.nodes.filter(n => !!n.lastError).map(n => n.lastError))).catch(console.error)
     })
 })();

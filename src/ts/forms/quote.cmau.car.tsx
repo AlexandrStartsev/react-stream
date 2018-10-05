@@ -216,7 +216,7 @@ const CarTabComponent = Pipe({get: (loc: ICoreCommCmauLocationVs) => loc.cars})(
         bodyFactory={car => <CarBodyComponent key={car.key} model={car}/>}
     />
 )
-
+ 
 const CarHeaderComponent = Pipe<ICoreCommCmauCarVs>({errorwatch: "peers"})(props =>
     <div className="div-button">
         <label className="div-button-text">

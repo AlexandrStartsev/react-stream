@@ -19,7 +19,7 @@ class Proxified<M extends IArfSet, P extends {model: M}, S={}, SS=any, X={}> ext
     }
 
     componentWillUnmount() {
-        this.$model instanceof ModelProxy && this.$model.$$proxy_internal.listener.undepend();
+        this.$model instanceof ModelProxy && this.$model.$listener.undepend();
         this.$model = null;
     }
 
@@ -47,9 +47,9 @@ class Proxified<M extends IArfSet, P extends {model: M}, S={}, SS=any, X={}> ext
     }
 }
 
-function bfsNodeSearch(field: Field<any>, model: any): PipeNode {
+function bfsNodeSearch<M extends IArfSet>(field: Field<M>, model: ModelProxy<M>): PipeNode {
     // TODO: elaborate...
-    let source: PipeNode = model.$$proxy_internal.listener.node;
+    let source = model.$listener.node as any as PipeNode;
     while(source instanceof Connected) {
         source = source.source;
     }
@@ -88,7 +88,7 @@ class Connected<M extends IArfSet, P extends {model: M, context?: ContextModel<M
 
     constructor(props: P) {
         super(props);
-        this.source = bfsNodeSearch((this.constructor as any).field, props.model);
+        this.source = bfsNodeSearch((this.constructor as any).field, props.model as any as ModelProxy<M>);
         if(!this.source) {
             throw "Logic didn't create node yet. Is this field included in form?";
         }
@@ -100,7 +100,7 @@ class Connected<M extends IArfSet, P extends {model: M, context?: ContextModel<M
     }
     componentWillUnmount() {
         this.source.unsubscribe(this);
-        this.state.model.$$proxy_internal.listener.undepend();
+        this.state.model.$listener.undepend();
     }
     shouldComponentUpdate(nextProps: Readonly<P>, nextState: Readonly<{data: D, error: string}>): boolean {
         if(this.state.data !== nextState.data || this.state.error != nextState.error ) {
@@ -177,7 +177,7 @@ class Errorwatch<M extends IArfSet, P extends {model: M, data?: any, context?: C
         error ? this.erroring.add(producer) : this.erroring.delete(producer);
         const ste = {error: this.erroring.size ? "error" : ""};
         if(this.constructed) {
-            this.setState(ste);
+            this.state.error === ste.error || this.setState(ste);
         } else {
             this.state = ste
         }
@@ -197,8 +197,8 @@ type PipeClass<OP, S, SS, X, M, D> = (new (props: OP) => React.Component<OP, S, 
 }
 
 export const Pipe = <M extends IArfSet, D=M> (settings?: {
-    get?: (proxy: M, context: ContextModel<M>, events?: ListenerEvent[]) => D,
-    val?: (value: D, proxy?: M, context?: ContextModel<M>, events?: ListenerEvent[]) => void|string,
+    get?: (proxy: M, context: ContextModel<M>) => D, // |Promise<D>
+    val?: (value: D, proxy?: M, context?: ContextModel<M>) => void|string,
     errorwatch?: "peers"//boolean|{target: "peers"|string|LogicNode, accept: (prev: string, next: string) => string },
     vstrategy?: ValidationStrategy
 }) => 

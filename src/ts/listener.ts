@@ -59,65 +59,32 @@ class Service {
         let view = await import("./views/" + viewName);
         return renderToString(React.createElement(view.default, {session: session}));
     }*/
-    async validate(formName: string, data: {}, callback: (errors: string[]) => void) {
-        let setup = await import("./forms/" + formName);
-        let logic = new LogicProcessor(ProxyUtils.castAs(Object.assign({}, data), setup.modelImpl), setup.form, true);
-        logic.waitForPipeLine(reject => callback(reject ? ["Exception during validation" + reject.message] : logic.nodes.map(n => n.lastError).filter(reject => !!reject)));
-
-        /*let setup = await import("./forms/" + formName) as ModuleDefinition;
-        Core.startRuntime({
-            model: MapperUtils.castAs(Object.assign({}, data), setup.modelImpl),
-            form: setup.form, 
-            validate: true, 
-            readyCb: (rt, args, reject) => {
-                if(reject) {
-                    console.error("Exception during form validation: " + formName, reject);
-                    callback(["Exception during validation"]);
-                } else {
-                    callback(rt.nodes.map(n => n.lastError).filter(e => !!e));
-                }
-            },
-            interval: -1
-        });*/
+    async validate(formName: string, data: {}) {
+        try {
+            let setup = await import("./forms/" + formName);
+            let logic = await new LogicProcessor(ProxyUtils.castAs(Object.assign({}, data), setup.modelImpl), setup.form, true).waitForPipeLine();
+            return logic.nodes.map(n => n.lastError).filter(reject => !!reject);
+        } catch(e) {
+            return ["Exception during validation" + (typeof e === "object" ? e.message + e.stack : e)];
+        }
     }
-    async ssr(formName: string, data: {}, callback: (html: string, cache: {key: string, value: any}[]) => void) {
+    async ssr(formName: string, data: {}): Promise<{html: string, cache: {key: string, value: any}[]}> {
         let cacheTimeStamp = +new Date();
         let React = await import("react");
         let { renderToString } = await import("../../resources/react-dom-server");
 
-        let setup = await import("./forms/" + formName);
-        let logic = new LogicProcessor(ProxyUtils.castAs(Object.assign({}, data), setup.modelImpl), setup.form, true);
-        logic.waitForPipeLine(reject => {
-            if(reject) {
-                console.warn("Exception during form side rendering: " + formName, reject);
-                callback("<label>Exception during form side rendering</label>", []);
-            } else {
-                let cache = ajaxCache.storage.getAccessedSince(cacheTimeStamp);
-                let html = renderToString(React.createElement(setup.FormComponent, {model: logic.rootModel}));
-                callback(html, Object.keys(cache).filter(key => cache[key].done === "success").map(key => ({key: key, value: cache[key].result})));
-            }
-        });
-
-
-        // TODO: dynamic model impl
-        /*let setup = await import("./forms/" + formName) as ModuleDefinition;
-        let cacheTimeStamp = +new Date();
-        let node = typeof documentFactory === "function" ? documentFactory().createElement('div') : null;
-        Core.startRuntime({
-            model: MapperUtils.castAs(Object.assign({}, data), setup.modelImpl),
-            form: setup.form, 
-            node: node,
-            readyCb: (rt, args, reject) => {
-                if(reject) {
-                    console.warn("Exception during form side rendering: " + formName, reject);
-                    callback("<label>Exception during form side rendering</label>", []);
-                } else {
-                    let cache = ajaxCache.storage.getAccessedSince(cacheTimeStamp);
-                    callback(node && node.innerHTML, Object.keys(cache).filter(key => cache[key].done === "success").map(key => ({key: key, value: cache[key].result})));
-                }
-            },
-            interval: -1
-        });*/
+        try {
+            let setup = await import("./forms/" + formName);
+            let logic = await new LogicProcessor(ProxyUtils.castAs(Object.assign({}, data), setup.modelImpl), setup.form, false).waitForPipeLine();
+            let cache = ajaxCache.storage.getAccessedSince(cacheTimeStamp);
+            let html = renderToString(React.createElement(setup.FormComponent, {model: logic.rootModel}));
+            return {
+                html: html,
+                cache: Object.keys(cache).filter(key => cache[key].done === "success").map(key => ({key: key, value: cache[key].result}))
+            };
+        } catch(e) {
+            return {html: "<label>Exception during form side rendering</label>", cache: []}
+        }
     }
 }
 

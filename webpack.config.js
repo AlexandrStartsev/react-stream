@@ -92,7 +92,7 @@ const server = {
   entry: {
     listener: "./src/ts/listener.ts"
   },
-  mode: "production",
+  mode: "development",
   plugins: [
     //new webpack.optimize.LimitChunkCountPlugin({maxChunks: 1}),
     new CleanWebpackPlugin(['target/nodejs']),
@@ -104,7 +104,7 @@ const server = {
     'xmlhttprequest': 'commonjs xmlhttprequest'
   },
   optimization: {
-    //minimize: false,
+    minimize: false,
     splitChunks: {
       chunks: 'all'
     }
