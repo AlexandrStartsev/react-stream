@@ -4,7 +4,7 @@ import { ProxyUtils } from "../api/proxy";
 import { CoreCommVsProxy } from "../gen/impl/com.arrow.model.def.corecomm";
 import { com } from "../gen/definitions";
 import { Editbox, Dropdown, EditboxMoney, Radiolist, ValidationLabel, enumChoiceMaker, TabComponent, Checkbox } from "../api/generics";
-import { Field, ChoiceInfo, required, AsyncContextBase } from "../api/dfe-stream";
+import { Field, ChoiceInfo, required, ContextModel } from "../api/dfe-stream";
 import { Pipe, Proxify, SwitchPipe } from "../api/react-connect";
 
 import "../../../resources/dfe-style.css";
@@ -106,7 +106,7 @@ const VehicleTypeSwitch = (type: VehicleType) => Pipe({get: (car: ICoreCommCmauC
     (props: {model: ICoreCommCmauCarVs, children: React.ReactNode, data: ICoreCommCmauCarVs}) => props.data ? <VehTypeProvider value={{vehicleType: type}}>{props.children}</VehTypeProvider> : null
 )
 
-function vehProcessVin(car: ICoreCommCmauCarVs, context: AsyncContextBase) {
+function vehProcessVin(car: ICoreCommCmauCarVs, context: ContextModel<ICoreCommCmauCarVs>) {
     return car.vinnumber.length == 17 ? context.await(ajaxCache.get({
         method: 'CMAUVehicleScriptHelper',
         action: 'getVinLookupResults',
@@ -129,9 +129,9 @@ function vehProcessVin(car: ICoreCommCmauCarVs, context: AsyncContextBase) {
 }
 
 type ApplyToAllConfing<D> = {
-    get: (car: ICoreCommCmauCarVs, context?: AsyncContextBase) => D,
+    get: (car: ICoreCommCmauCarVs, context?: ContextModel<ICoreCommCmauCarVs>) => D,
     set: (car: ICoreCommCmauCarVs, value: string) => void,
-    validate?: boolean | ((value: D, proxy?: ICoreCommCmauCarVs, context?: AsyncContextBase) => string)
+    validate?: boolean | ((value: D, proxy?: ICoreCommCmauCarVs, context?: ContextModel<ICoreCommCmauCarVs>) => string)
     label: string
     labelStyle?: React.CSSProperties
     pattern?: RegExp
@@ -217,7 +217,12 @@ const CarTabComponent = Pipe({get: (loc: ICoreCommCmauLocationVs) => loc.cars})(
     />
 )
 
-const CarHeaderComponent = Pipe<ICoreCommCmauCarVs>({errorwatch: { target: "peers", accept: () => "error"}})(props =>
+const CarHeaderComponent = Pipe<ICoreCommCmauCarVs>({
+    val: (_, model, context) => {
+
+    }
+    //errorwatch: { target: "peers", accept: () => "error"}
+})(props =>
     <div className="div-button">
         <label className="div-button-text">
             {`${props.data.p.state} - Vehicle #${props.data.p.cars.indexOf(props.data) + 1}`}<br/>{`${props.data.modelYr} ${props.data.make}`}

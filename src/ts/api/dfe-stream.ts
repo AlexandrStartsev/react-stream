@@ -20,23 +20,7 @@ function doValidation(events: ListenerEvent[], vstrategy: ValidationStrategy) {
     return vstrategy === ValidationStrategy.Always || vstrategy === ValidationStrategy.Notified && events[0].action != 'init'
 }
 
-function errorwatch(node: LogicNode, target: 'peers' | string | LogicNode, reducer: Function) {
-    let error = '';
-    let myModel = node.model;
-    let erroringChildren: Set<LogicNode> = new ModelProxy(target === 'peers' ? node.parent : target, null, null, true, node.runtime.evListener).forWatcher(node).get('erroringChildren');
-    if(target === 'peers') {
-        erroringChildren.forEach(
-            node => myModel.hasChild(node.model) && (error = reducer ? reducer(error, node.lastError) : node.lastError)
-        )
-    } else {
-        erroringChildren.forEach(
-            node => error = reducer(error, node.lastError)
-        )
-    }
-    return error;
-}
-    
-export class ContextModel<M> implements AsyncContextBase {
+export class ContextModel<M=IArfSet> {
     $runtime: LogicProcessor
     $node: LogicNode
     $model: ModelProxy<M>
@@ -55,18 +39,13 @@ export class ContextModel<M> implements AsyncContextBase {
         if(data !== undefined) {
             if(error === undefined) {
                 let {lastNotifications, field, lastError} = node;
-                if(field.errorwatch) {
-                    let { target = node, accept = (a: string, b: string) => b } = typeof field.errorwatch === 'object' ? field.errorwatch : {};
-                    error = errorwatch(node, target, accept);
-                } else {
-                    let validationResult = '';
-                    try {
-                        validationResult = (lastError || doValidation(lastNotifications, field.vstrategy)) && field.val && field.val(data, node.model, this, lastNotifications) || '';
-                    } catch(e) {
-                        validationResult = e.message || 'exception';
-                    }
-                    error = typeof validationResult === 'string' ? validationResult : '';
+                let validationResult = '';
+                try {
+                    validationResult = (lastError || doValidation(lastNotifications, field.vstrategy)) && field.val && field.val(data, node.model, this, lastNotifications) || '';
+                } catch(e) {
+                    validationResult = e.message || 'exception';
                 }
+                error = typeof validationResult === 'string' ? validationResult : '';
             }
             node.accept(data, error);
         } else {
@@ -94,7 +73,6 @@ export class ContextModel<M> implements AsyncContextBase {
 interface FieldProps<P, C> {
     get?: (proxy: P, context: ContextModel<P>, events?: ListenerEvent[]) => C
     val?: (value: C, proxy?: P, context?: ContextModel<P>, events?: ListenerEvent[]) => void|string
-    errorwatch?: boolean|{target: string|LogicNode, accept: (prev?: string, next?: string) => string }
     vstrategy?: ValidationStrategy
 }
 
@@ -102,7 +80,6 @@ type ArrayItem<A> = A extends Array<infer I> ? I : never
 export class Field<P extends IArfSet, D=P> {
     get: (proxy: P, context: ContextModel<P>, events?: ListenerEvent[]) => D
     val?: (value: any, proxy: IArfSet, context: ContextModel<P>, events: ListenerEvent[]) => void|string
-    errorwatch: boolean|{target: "peers"|string|LogicNode, accept: (prev: string, next: string) => string }
     vstrategy: ValidationStrategy
 
     children: Field<ArrayItem<D>, any>[] = []
@@ -122,7 +99,7 @@ export interface PipeNode {
     lastData?: any
     lastError?: string
     source?: PipeNode
-    consumer?: PipeNode // PipeNode[]
+    consumer?: PipeNode[]
     accept(data: any, error?: string): any
     terminate(): any
     //follow(target: PipeNode): any
@@ -136,12 +113,11 @@ export class LogicNode implements PipeNode, Watcher {
     field: Field<any, any>
     terminated: boolean
     //source: PipeNode TODO: chain
-    consumer: PipeNode // TODO: multiple consumers
+    consumer: PipeNode[] = [] // TODO: multiple consumers
     runtime: LogicProcessor
     notifications?: ListenerEvent[] = []
     lastNotifications: ListenerEvent[]
     children:  Map<number, Map<Field<any, any>, LogicNode>> = new Map()
-    erroringChildren: Set<LogicNode> = new Set()
     model: ModelProxy<any>
     context: ContextModel<any>
 
@@ -166,9 +142,6 @@ export class LogicNode implements PipeNode, Watcher {
             let childrenFields = this.field.children;
             if(data !== undefined) {
                 // todo: evaliate lastData vs data and maybe skip rendering/child reconciliation 
-                if(!this.field.errorwatch) {
-                    error ? this.runtime.notifyErroring(this) : this.runtime.clearError(this);
-                }
                 if(childrenFields.length) {
                     let arr = data && typeof data === 'object' ? ( Array.isArray(data) ? data : [data] ) : []
                     // ??
@@ -177,11 +150,10 @@ export class LogicNode implements PipeNode, Watcher {
                 }
                 this.lastData = data;
                 this.lastError = error;
-                this.consumer && this.consumer.accept(data, error);
-                //this.shouldRender = true;
+                this.consumer.forEach(c => c.accept(data, error));
                 this.runtime.scheduleWork(this);
             } else {
-                error && (this.lastError = error) && this.runtime.notifyErroring(this);
+                this.lastError = error;
             }
         }
     }
@@ -198,7 +170,7 @@ export class LogicNode implements PipeNode, Watcher {
                 this.parent = null;
             }
             this.terminated = true;
-            this.consumer && this.consumer.terminate();
+            this.consumer.forEach(c => c.terminate());
             this.consumer = null;
         }
     }
@@ -235,19 +207,9 @@ export interface ChoiceInfo<T> {
     value: T,
     items: ValueDescription<T>[],
 }
-
-export interface AsyncContextBase {
-    result<T>(data: T, error?: string): void,
-    await<T>(promise: Promise<T>, onSuccess?: (data: T, context: this) => T, onReject?: (reason: any, context: this) => void): void,
-    reject(): void,
-    lastError(): string
-}
 //###############################################################################################################################
 
 export class LogicProcessor<M={}> {
-    // TODO: this is technically leaking memory (watchers are not removed when runtime shuts down when this is static).
-    // I've made it non-static, so it gets disposed of every time runtime is shut down. But it s better to figure out why and fix.
-    evListener = new Listener({});
     nodes: LogicNode[]
     scheduledWork: any
     rootModel: M
@@ -302,23 +264,10 @@ export class LogicProcessor<M={}> {
         return node;
     }
     evictNode(node: LogicNode) {
-        this.clearError(node);
+        delete node.lastError;
         node.terminated = true;
         node.children.forEach(fieldMap => fieldMap.forEach( node => this.evictNode(node)));
         node.terminate();
-    }        
-    clearError(node: LogicNode) {
-        if( node.lastError ) {
-            delete node.lastError;
-            for( let cur = node.parent; cur && cur.erroringChildren.delete(node); cur = cur.parent ) {
-                this.evListener.notify(cur.key, 'erroringChildren');
-            }
-        }
-    }
-    notifyErroring(node: LogicNode) {
-        for( let cur = node.parent; cur && !cur.erroringChildren.has(node); cur = cur.parent ) {
-            cur.erroringChildren.add(node), this.evListener.notify(cur.key, 'erroringChildren', 'validate'); 
-        }
     }
     reconcileChildren(parent: LogicNode, rowProxies: ModelProxy<any>[], events: ListenerEvent[]) {
         let childFields = parent.field.children;
