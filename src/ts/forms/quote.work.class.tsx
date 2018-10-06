@@ -4,7 +4,7 @@ import { ModelUtils } from "../api/proxy";
 import { CoreCommVsProxy } from "../gen/impl/com.arrow.model.def.corecomm";
 import { com } from "../gen/definitions";
 import { Editbox, Dropdown, EditboxMoney, Radiolist, stringChoiceMaker, ValidationLabel } from "../api/generics";
-import { ChoiceInfo, required, ContextModel } from "../api/dfe-stream";
+import { ChoiceInfo, required, LogicNodeContext } from "../api/dfe-stream";
 import { Pipe, Proxify, SwitchPipe } from "../api/react-connect";
 
 import "../../../resources/dfe-style.css";
@@ -75,7 +75,7 @@ const CityComponent = Pipe({get: (loc: ICoreCommWorkLocation) => loc.city, val: 
 )
 
 const StateComponent = Pipe({get: (loc: ICoreCommWorkLocation) => stringChoiceMaker(loc.state, states), val: simplyRequired})(
-    (props: {model: ICoreCommWorkLocation, context: ContextModel, data?: ChoiceInfo<string>, processNoSpecificLocationChange: (loc: ICoreCommWorkLocation, context: ContextModel, newState: string, newNoSpecificLocation: string) => void, error?: string}) => <td>
+    (props: {model: ICoreCommWorkLocation, context: LogicNodeContext, data?: ChoiceInfo<string>, processNoSpecificLocationChange: (loc: ICoreCommWorkLocation, context: LogicNodeContext, newState: string, newNoSpecificLocation: string) => void, error?: string}) => <td>
         <Dropdown 
             data={props.data} 
             set={val => props.processNoSpecificLocationChange(props.model, props.context, val, props.model.noSpecificLocation)}
@@ -96,7 +96,7 @@ const ZipComponent = Pipe({get: (loc: ICoreCommWorkLocation) => loc.zip, val: (z
     </td>
 )
 
-const NoSpecificComponent = Pipe()((props: {model: ICoreCommWorkLocation, context: ContextModel, processNoSpecificLocationChange: (loc: ICoreCommWorkLocation, context: ContextModel, newState: string, newNoSpecificLocation: string) => void}) =>
+const NoSpecificComponent = Pipe()((props: {model: ICoreCommWorkLocation, context: LogicNodeContext, processNoSpecificLocationChange: (loc: ICoreCommWorkLocation, context: LogicNodeContext, newState: string, newNoSpecificLocation: string) => void}) =>
     <td style={props.model.state.match(/MO|AZ|IN|IA|KY|MT|TX/) ? {visibility: "hidden"} : {}} className="no-specific-field">
         <input type="checkbox" checked={props.model.noSpecificLocation === 'Y'} 
             onChange={event => props.processNoSpecificLocationChange(props.model, props.context, props.model.state, event.target.checked ? 'Y' : 'N')}/>
@@ -319,7 +319,7 @@ const MonopolisticSwitch = Pipe({get: (loc: ICoreCommWorkLocation) => isMonopoli
     </Fragment> : null
 ).to(StopGapIncludedComponent, StopGapPayrollComponent)
 
-const LocationRowComponent = Pipe()((props: {model: ICoreCommWorkLocation, processNoSpecificLocationChange: (loc: ICoreCommWorkLocation, context: ContextModel, newState: string, newNoSpecificLocation: string) => void, showAvailable: (effectiveDt: string, state: string) => void}) => {
+const LocationRowComponent = Pipe()((props: {model: ICoreCommWorkLocation, processNoSpecificLocationChange: (loc: ICoreCommWorkLocation, context: LogicNodeContext, newState: string, newNoSpecificLocation: string) => void, showAvailable: (effectiveDt: string, state: string) => void}) => {
     let loc = props.model;
     return (
         <Fragment>
@@ -349,7 +349,7 @@ const LocationContainerComponent = Pipe({
 })((props: {
         model: ICoreCommWork, 
         addLocation: (locs: ICoreCommWorkLocation[]) => void, 
-        processNoSpecificLocationChange: (loc: ICoreCommWorkLocation, context: ContextModel, newState: string, newNoSpecificLocation: string) => void, 
+        processNoSpecificLocationChange: (loc: ICoreCommWorkLocation, context: LogicNodeContext, newState: string, newNoSpecificLocation: string) => void, 
         showAvailable: (effectiveDt: string, state: string) => void,
         error: string
         data: ICoreCommWorkLocation[]
@@ -395,7 +395,7 @@ const QuoteWorkClassComponent = Pipe({get: (root: ICoreCommVs) => root.policy.wo
             locs.push(defaults);
             locs[index].classes.push({});
         }
-        processNoSpecificLocationChange(loc: ICoreCommWorkLocation, context: ContextModel, newState: string, newNoSpecificLocation: string) {
+        processNoSpecificLocationChange(loc: ICoreCommWorkLocation, context: LogicNodeContext, newState: string, newNoSpecificLocation: string) {
             newNoSpecificLocation = newNoSpecificLocation || 'N';
             if (noSpecificDisabled(newState)) {
                 newNoSpecificLocation = 'N';

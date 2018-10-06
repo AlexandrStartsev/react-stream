@@ -1,4 +1,4 @@
-import { IArfSet, ModelProxy, Listener, Watcher, ListenerEvent } from "./proxy";
+import { IArfSet, ModelProxy, Subscription, Subscriber, ListenerEvent } from "./proxy";
 
 export type Diff<T extends string | number | symbol, U extends string | number | symbol> = ({[P in T]: P } & {[P in U]: never } & { [x: string]: never })[T];  
 export type Pick<T, K extends keyof T> = {[P in K]: T[P]}
@@ -21,23 +21,20 @@ function doValidation(events: ListenerEvent[], vstrategy: ValidationStrategy) {
     return vstrategy === ValidationStrategy.Always || vstrategy === ValidationStrategy.Notified && events[0].action != 'init'
 }
 
-export class ContextModel<M=IArfSet> {
-    $runtime: LogicProcessor
-    $node: LogicNode
-    $model: ModelProxy<M>
-    $unbound: ModelProxy<M>
+export class LogicNodeContext {
+    node: LogicNode
     $await: Promise<any>
 
-    constructor(model: ModelProxy<M>, unbound: ModelProxy<M>, runtime: LogicProcessor, node: LogicNode) {
-        this.$runtime = runtime;
-        this.$node = node;
-        this.$model = model;
-        this.$unbound = unbound;
+    constructor(node: LogicNode) {
+        this.node = node;
         this.$await = null;
+    }
+    get unbound() {
+        return this.node.model.withSubscription();
     }
     // TODO: all this should be moved to logic node. 
     result(data: any, error?: string) {
-        let node = this.$node;
+        let node = this.node;
         if(data !== undefined) {
             this.$await = null;
             if(error === undefined) {
@@ -60,11 +57,10 @@ export class ContextModel<M=IArfSet> {
     }
     reject() {
         this.$await = null;
-        this.$node.notify({action: "notify"});
+        this.node.notify({action: "notify"});
     }                
     destroy() {
         this.$await = null;
-        this.$model.$listener.undepend();
     }
     await<T>(promise: Promise<T>, onSuccess?: (data: T, context: this) => T, onReject?: (reason: any, context: this) => void): void {
         this.$await = promise.then(
@@ -72,25 +68,25 @@ export class ContextModel<M=IArfSet> {
             v => onReject ? onReject(v, this) : this.result(undefined, v)
         );
     }
-    awaitNoResolve(promise: Promise<any>) {
+    awaitAndClearFlag(promise: Promise<any>) {
         this.$await = promise.then(() => this.$await = null, () => this.$await = null);
     }
     lastError() {
-        return this.$node.lastError;
-    }    
+        return this.node.lastError;
+    }
 }
 
 
 interface FieldProps<P, C> {
-    get?: (proxy: P, context: ContextModel<P>) => C|Promise<C>
-    val?: (value: C, proxy?: P, context?: ContextModel<P>) => void|string
+    get?: (proxy: P, context: LogicNodeContext) => C|Promise<C>
+    val?: (value: C, proxy?: P, context?: LogicNodeContext) => void|string
     vstrategy?: ValidationStrategy
 }
 
 type ArrayItem<A> = A extends Array<infer I> ? I : never
 export class Field<P extends IArfSet, D=P> {
-    get: (proxy: P, context: ContextModel<P>) => D|Promise<D>
-    val?: (value: any, proxy: IArfSet, context: ContextModel<P>) => void|string
+    get: (proxy: P, context: LogicNodeContext) => D|Promise<D>
+    val?: (value: any, proxy: IArfSet, context: LogicNodeContext) => void|string
     vstrategy: ValidationStrategy
 
     children: Field<ArrayItem<D>, any>[] = []
@@ -112,8 +108,7 @@ export interface PipeNode {
     unsubscribeFrom(producer: PipeNode): void
 }
 
-export class LogicNode implements PipeNode, Watcher {
-    key: string
+export class LogicNode implements PipeNode, Subscriber {
     parent: LogicNode
     lastData: any
     lastError: any   
@@ -126,16 +121,16 @@ export class LogicNode implements PipeNode, Watcher {
     lastNotifications: ListenerEvent[]
     children:  Map<number, Map<Field<any, any>, LogicNode>> = new Map()
     model: ModelProxy<any>
-    context: ContextModel<any>
+    context: LogicNodeContext
+    subscription: Subscription
 
     constructor(parent: LogicNode, field: Field<any, any>, proxy: ModelProxy<any>, runtime: LogicProcessor) {
-        let unbound = proxy.forWatcher();
         this.parent = parent;
         this.runtime = runtime;
-        this.key = "field:" + unbound.key;//field.name + '-' + unbound.key;
         this.field = field;
-        this.model = unbound.forWatcher(this);
-        this.context = new ContextModel(this.model, unbound, runtime, this);
+        this.subscription = new Subscription(proxy.$subscription, this);
+        this.model = proxy.withSubscription(this.subscription);
+        this.context = new LogicNodeContext(this);
     }
     notify(action?: ListenerEvent|ListenerEvent[]) {
         if(!this.terminated) {
@@ -192,6 +187,7 @@ export class LogicNode implements PipeNode, Watcher {
             this.context.destroy();
             this.consumers.forEach(c => c.unsubscribeFrom(this));
             this.children.forEach(map => map.forEach( node => node.terminate() ));
+            this.subscription.terminate();
         }
     }
     subscribe(consumer: PipeNode) {
@@ -304,7 +300,7 @@ export class LogicProcessor<M={}> {
                 rez instanceof Promise ? context.await(rez) : context.result(rez);
             } catch(e) {
                 context.result(undefined, e.message);
-                //console.error(node.field + '\n' + e.message + '\n' + e.stack); 
+                console.error(node.field + '\n' + e.message + '\n' + e.stack); 
             }
         }
     }

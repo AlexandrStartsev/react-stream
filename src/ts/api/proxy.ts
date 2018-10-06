@@ -13,7 +13,7 @@ export function Enumerable(value: boolean) {
     };
 }
 
-export function Observable<T, P extends ModelProxy<T>, A=new (data: T, parent: ModelProxy<any>, parentCollection: string, single: boolean, listener: Listener) => P>(proxyClass?: A|A[]) {
+export function Observable<T, P extends ModelProxy<T>, A=new (data: T, parent: ModelProxy<any>, parentCollection: string, single: boolean, listener: Subscription) => P>(proxyClass?: A|A[]) {
     return function (target: any, propertyKey: string) {
         if(proxyClass) {
             const isSubset = typeof proxyClass === "function";
@@ -62,13 +62,14 @@ export interface IArfSet {
 export type ListenerAction = "add"|"modify"|"delete"|"remove"|"validate"|"init"|"self"|"notify"
 export interface ListenerEvent { key? : number|string, element? : string, action?: ListenerAction }
 
-export interface Watcher {
+export interface Subscriber {
+    subscription: Subscription
     notify(action?: ListenerEvent): void;
 }
 
-export class Listener {
+export class Subscription {
     // TODO: this is still an issue. loop over Core.startRuntime multiple times causes memory leaks when passing same data object. Workaround is to pass different data object (shallow copy is fine). 
-    static modelWatchMap: WeakMap<IArfSet, Map<string, Set<Watcher>>> = new WeakMap();
+    static modelWatchMap: WeakMap<IArfSet, Map<string, Set<Subscriber>>> = new WeakMap();
     static getRootDependencyMap(model: IArfSet) {
         if(model) {
             let p;
@@ -78,36 +79,36 @@ export class Listener {
             } else {
                 for(p = model; p.p; p = p.p) ;
             }
-            let m = Listener.modelWatchMap.get(p);
-            m || Listener.modelWatchMap.set(p, m = new Map());
+            let m = Subscription.modelWatchMap.get(p);
+            m || Subscription.modelWatchMap.set(p, m = new Map());
             return m;
         }
         return new Map();
     }
 
-    dpMap: Map<string, Set<Watcher>>
-    node?: Watcher
+    dpMap: Map<string, Set<Subscriber>>
+    subscriber?: Subscriber
     dependencies?: string[]
-    constructor(model: IArfSet|Listener, node?: Watcher) {
-        this.dpMap = model instanceof Listener ? model.dpMap : Listener.getRootDependencyMap(model);
-        this.node = node;
+    constructor(model: IArfSet|Subscription, subscriber?: Subscriber) {
+        this.dpMap = model instanceof Subscription ? model.dpMap : Subscription.getRootDependencyMap(model);
+        this.subscriber = subscriber;
         this.dependencies = [];
     }
-    undepend() {
+    terminate() {
         this.dependencies.forEach(dpKey => {
             let ctlSet = this.dpMap.get(dpKey);
             if(ctlSet) {
-                ctlSet.delete(this.node);
+                ctlSet.delete(this.subscriber);
                 ctlSet.size || this.dpMap.delete(dpKey);
             }
         })
     }
     depend(key: number|string, element: string) {
-        if(this.node) {
+        if(this.subscriber) {
             let dpKey = key + '-' + element, e = this.dpMap.get(dpKey);
             e || this.dpMap.set(dpKey, e = new Set());
-            if(!e.has(this.node)) {
-                e.add(this.node);
+            if(!e.has(this.subscriber)) {
+                e.add(this.subscriber);
                 this.dependencies.push(dpKey);
             }
         }
@@ -117,13 +118,6 @@ export class Listener {
         e && e.forEach(node => node.notify({key : key, element : element, action : action}));
         return true;
     }
-    /*set(proxy: ModelProxy<any>, element: string, value: any, action: string) { 
-        if(proxy.$data[element] != value) { proxy.$data[element] = value; this.notify(proxy.key, element, action) }; return true; 
-    }
-    get(proxy: ModelProxy<any>, element: string) { 
-        this.depend(proxy.key, element); 
-        return proxy.$data[element]; 
-    }*/
 }
 
 export let ModelProxyKeygey = (function() {
@@ -136,13 +130,13 @@ export let ModelProxyKeygey = (function() {
 export class ModelProxyArray<P extends ModelProxy<T>, T> extends Array<P> {
     $parent: ModelProxy<any>
     $parentCollection: string
-    $clazz: new (data: T, parent?: ModelProxy<any>, parentCollection?: string, single?: boolean, listener?: Listener) => P
-    constructor(parent: ModelProxy<any>, parentCollection: string, clazz: new (data: T, parent: ModelProxy<any>, parentCollection: string, single: boolean, listener: Listener) => P) {
+    $clazz: new (data: T, listener?: Subscription, parent?: ModelProxy<any>, parentCollection?: string, single?: boolean) => P
+    constructor(parent: ModelProxy<any>, parentCollection: string, clazz: new (data: T, listener: Subscription, parent: ModelProxy<any>, parentCollection: string, single: boolean) => P) {
         if(typeof parent === 'number') {
             super(parent);
         } else {
             super();
-            Array.prototype.push.apply(this, (<Array<T>>parent.get(parentCollection) || []).map(item => new clazz(item, parent, parentCollection, false, parent.$listener)));
+            Array.prototype.push.apply(this, (<Array<T>>parent.get(parentCollection) || []).map(item => new clazz(item, parent.$subscription, parent, parentCollection, false)));
         }
         this.$parent = parent;
         this.$parentCollection = parentCollection;
@@ -152,7 +146,7 @@ export class ModelProxyArray<P extends ModelProxy<T>, T> extends Array<P> {
     push(...items: (P|T)[]): number {
         return Array.prototype.push.apply(this, 
             items.map( item => {
-                let proxy = (new this.$clazz(<T>{}, this.$parent, this.$parentCollection, false, this.$parent.$listener));
+                let proxy = (new this.$clazz(<T>{}, this.$parent.$subscription, this.$parent, this.$parentCollection, false));
                 ModelUtils.copy(proxy, item);
                 this.$parent.append(this.$parentCollection, false, proxy.$data);
                 return proxy;
@@ -160,7 +154,7 @@ export class ModelProxyArray<P extends ModelProxy<T>, T> extends Array<P> {
         );
     }
     shadow(item?: P|T): P {
-        let proxy = (new this.$clazz(<T>{}, this.$parent, this.$parentCollection, false, this.$parent.$listener));
+        let proxy = (new this.$clazz(<T>{}, this.$parent.$subscription, this.$parent, this.$parentCollection, false));
         typeof item === 'object' && ModelUtils.copy(proxy, item);
         proxy.$persisted = null;
         return proxy;
@@ -182,15 +176,15 @@ export class ModelProxy<T extends IArfSet & {[index: string]: any}> implements I
     $data: {[index: string]: any}
     $persisted: {}
     $parent?: ModelProxy<any>
-    $listener? : Listener
+    $subscription? : Subscription
     $parentCollection: string
     $single: boolean
 
-    constructor(data: {}, parent?: ModelProxy<any>, parentCollection?: string, single?: boolean, listener?: Listener) {
+    constructor(data: {}, subscription?: Subscription, parent?: ModelProxy<any>, parentCollection?: string, single?: boolean) {
         this.$persisted = data;
         this.$data = <T>(data||{});
         this.$parent = parent||null;
-        this.$listener = listener||new Listener(this);
+        this.$subscription = subscription||new Subscription(this);
         this.$single = single===undefined?true:single;
         this.$parentCollection = parentCollection||'';
     }
@@ -202,29 +196,29 @@ export class ModelProxy<T extends IArfSet & {[index: string]: any}> implements I
     }
     @Enumerable(false)
     get p() {
-        return this.$parent.forWatcher(this.$listener.node);
+        return this.$parent.withSubscription(this.$subscription);
     }
     @Enumerable(false)
-    forWatcher(watcher?: Watcher): this {
-        let ctor = this.constructor as new (data: {}, parent: ModelProxy<any>, parentCollection: string, single: boolean, listener: Listener) => this;
-        let ret = new ctor(this.$data, this.$parent, this.$parentCollection, this.$single, new Listener(this.$listener, watcher));
+    withSubscription(subscription?: Subscription): this {
+        let ctor = this.constructor as new (data: {}, listener: Subscription, parent: ModelProxy<any>, parentCollection: string, single: boolean) => this;
+        let ret = new ctor(this.$data, subscription, this.$parent, this.$parentCollection, this.$single);
         this.$persisted = this.$persisted;
         return ret;
     }
     @Enumerable(false)
     get(element: string): any {
-        this.$listener.depend(this.key, element);
+        this.$subscription.depend(this.key, element);
         return this.$data[element];
     }
     @Enumerable(false)
-    getSubset<C extends IArfSet, P extends ModelProxy<C>>(element: string, proxyClass: new (data: C, parent: ModelProxy<any>, parentCollection: string, single: boolean, listener: Listener) => P): P {
+    getSubset<C extends IArfSet, P extends ModelProxy<C>>(element: string, proxyClass: new (data: C, listener: Subscription, parent: ModelProxy<any>, parentCollection: string, single: boolean) => P): P {
         if(element) {
-            return new proxyClass( this.get(element), this, element, true, this.$listener );
+            return new proxyClass( this.get(element), this.$subscription, this, element, true );
         }
-        return new proxyClass( <any>this.$data, this, null, true, this.$listener );
+        return new proxyClass( <any>this.$data, this.$subscription, this, null, true );
     }
     @Enumerable(false)
-    getSublist<C extends IArfSet, P extends ModelProxy<C>>(element: string, proxyClass: new (data: C, parent: ModelProxy<any>, parentCollection: string, single: boolean, listener: Listener) => P): Array<P> {
+    getSublist<C extends IArfSet, P extends ModelProxy<C>>(element: string, proxyClass: new (data: C, listener: Subscription, parent: ModelProxy<any>, parentCollection: string, single: boolean) => P): Array<P> {
         return new ModelProxyArray<P, C>(this, element, proxyClass);
     }
     @Enumerable(false)
@@ -235,7 +229,7 @@ export class ModelProxy<T extends IArfSet & {[index: string]: any}> implements I
                 let obj: {} =this.$data[ element ];
                 if( !obj || typeof obj !== 'object' ) {
                     obj = this.$data[ element ] = data||{};
-                    this.$listener.notify(this.key, element, "add");
+                    this.$subscription.notify(this.key, element, "add");
                 } else {
                     // TODO: merge ? 
                 }
@@ -246,7 +240,7 @@ export class ModelProxy<T extends IArfSet & {[index: string]: any}> implements I
                     this.$data[ element ] = arr = [];
                 }
                 arr.push(obj);
-                this.$listener.notify(this.key, element, "add");
+                this.$subscription.notify(this.key, element, "add");
                 return obj;
             }
         }
@@ -257,13 +251,13 @@ export class ModelProxy<T extends IArfSet & {[index: string]: any}> implements I
         if(value === undefined || value === null || value === '') {
             if(this.$data.hasOwnProperty(element)) {
                 delete this.$data[element];
-                this.$listener.notify(this.key, element, "delete");
+                this.$subscription.notify(this.key, element, "delete");
             }
         } else {
             this.persist();
             if(this.$data[element] !== value) {
                 this.$data[element] = value;
-                this.$listener.notify(this.key, element, "modify");
+                this.$subscription.notify(this.key, element, "modify");
             }
         }
         return value;
@@ -284,7 +278,7 @@ export class ModelProxy<T extends IArfSet & {[index: string]: any}> implements I
                     if(collection) {
                         collection.splice(collection.indexOf(this.$persisted), 1);
                         collection.length || delete this.$parent.$data[this.$parentCollection];
-                        this.$listener.notify(this.$parent.key, this.$parentCollection, "remove");
+                        this.$subscription.notify(this.$parent.key, this.$parentCollection, "remove");
                     }
                 } else {
                     this.$parent.detach();
@@ -307,8 +301,8 @@ export class ModelProxy<T extends IArfSet & {[index: string]: any}> implements I
 }
 
 export namespace ModelUtils {
-    export function castAs<T extends IArfSet>(data: {}, impl: new (data: {}, parent?: any, parentCollection?: any, single?: boolean) => ModelProxy<T>) : T {
-        return typeof impl === "function" ? <any>(new impl(data, null, null, true)) : data;
+    export function castAs<T extends IArfSet>(data: {}, impl: new (data: {}, listener?: Subscription, parent?: any, parentCollection?: any, single?: boolean) => ModelProxy<T>) : T {
+        return typeof impl === "function" ? <any>(new impl(data, null, null, null, true)) : data;
     }
 
     export function detach<T extends IArfSet>(v: T) {

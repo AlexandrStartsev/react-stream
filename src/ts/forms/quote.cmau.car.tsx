@@ -4,7 +4,7 @@ import { ModelUtils, IArfSet } from "../api/proxy";
 import { CoreCommVsProxy } from "../gen/impl/com.arrow.model.def.corecomm";
 import { com } from "../gen/definitions";
 import { Editbox, Dropdown, EditboxMoney, Radiolist, ValidationLabel, enumChoiceMaker, TabComponent, Checkbox } from "../api/generics";
-import { Field, ChoiceInfo, required, ContextModel, PipeNode, LogicNode, Pick, Omit } from "../api/dfe-stream";
+import { Field, ChoiceInfo, required, LogicNodeContext, PipeNode, LogicNode, Pick, Omit } from "../api/dfe-stream";
 import { Pipe, Proxify, SwitchPipe } from "../api/react-connect";
 
 import "../../../resources/dfe-style.css";
@@ -106,8 +106,8 @@ const VehicleTypeSwitch = (type: VehicleType) => Pipe({get: (car: ICoreCommCmauC
     (props: {model: ICoreCommCmauCarVs, children: React.ReactNode, data: ICoreCommCmauCarVs}) => props.data ? <VehTypeProvider value={{vehicleType: type}}>{props.children}</VehTypeProvider> : null
 )
 
-function vehProcessVin(car: ICoreCommCmauCarVs, context: ContextModel<ICoreCommCmauCarVs>) {
-    return car.vinnumber.length == 17 ? context.awaitNoResolve(ajaxCache.get({
+function vehProcessVin(car: ICoreCommCmauCarVs, context: LogicNodeContext) {
+    return car.vinnumber.length == 17 ? context.awaitAndClearFlag(ajaxCache.get({
         method: 'CMAUVehicleScriptHelper',
         action: 'getVinLookupResults',
         vinNumber: car.vinnumber
@@ -129,9 +129,9 @@ function vehProcessVin(car: ICoreCommCmauCarVs, context: ContextModel<ICoreCommC
 }
 
 type ApplyToAllConfing<D> = {
-    get: (car: ICoreCommCmauCarVs, context?: ContextModel<ICoreCommCmauCarVs>) => D,
+    get: (car: ICoreCommCmauCarVs, context?: LogicNodeContext) => D,
     set: (car: ICoreCommCmauCarVs, value: string) => void,
-    validate?: boolean | ((value: D, proxy?: ICoreCommCmauCarVs, context?: ContextModel<ICoreCommCmauCarVs>) => string)
+    validate?: boolean | ((value: D, proxy?: ICoreCommCmauCarVs, context?: LogicNodeContext) => string)
     label: string
     labelStyle?: React.CSSProperties
     pattern?: RegExp
@@ -264,7 +264,7 @@ namespace GenInfo {
     const DoYouHaveVinComponent = Proxify((props: {model: ICoreCommCmauCarVs}) => <tr><td>Do you have the VIN?</td><td><Radiolist data={{value: props.model.hasvin, items: YesNoItems}} set={value => props.model.hasvin = value}/></td></tr>)
     const OverrideComponent = Proxify((props: {model: ICoreCommCmauCarVs}) => props.model.hasvin !== "Y" || props.model.vinvalid == "Y" || !props.model.vinnumber ? null : <tr><td style={{paddingLeft: 16}}>Override VIN?</td><td><Radiolist data={{value: props.model.vinoverride, items: YesNoItems}} set={value => props.model.vinoverride = value}/></td></tr>)
     const CustomInfoComponent = Proxify((props: {model: ICoreCommCmauCarVs}) => vehDetailsDisabled(props.model) ? null : <tr><td style={{paddingLeft: 16}}>Vehicle Year, Make and/or Model is not available in dropdown</td><td><Radiolist data={{value: props.model.custom, items: YesNoItems}} set={value => props.model.custom = value}/></td></tr>)
-    const VinNumberComponent = Pipe({get: (car: ICoreCommCmauCarVs) => ({ hasvin: car.hasvin, vin: car.vinnumber, valid: car.vinvalid, override: car.vinoverride }), val: info => info.override === "Y" ? "" : required(info.vin) || required(info.vin, /[a-zA-Z0-9]{17}/, "Invalid VIN format") || (info.valid == "Y" ? "" : "Vin not found")})(
+    const VinNumberComponent = Pipe({get: (car: ICoreCommCmauCarVs) => ({ hasvin: car.hasvin, vin: car.vinnumber, valid: car.vinvalid, override: car.vinoverride }), val: info => info.hasvin === "N" || info.override === "Y" ? "" : required(info.vin) || required(info.vin, /[a-zA-Z0-9]{17}/, "Invalid VIN format") || (info.valid == "Y" ? "" : "Vin not found")})(
         props => <tr>
             <td>Vihicle Identification Number (VIN)<ValidationLabel error={props.error}/></td>
             <td><Editbox 

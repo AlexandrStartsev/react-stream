@@ -1,6 +1,6 @@
 import * as React from "react";
-import {IArfSet, ModelProxy, Watcher, ListenerEvent} from "./proxy";
-import {Field, PipeNode, LogicNode, ContextModel, ValidationStrategy, Omit} from "./dfe-stream";
+import {IArfSet, ModelProxy, Subscriber, ListenerEvent, Subscription} from "./proxy";
+import {Field, PipeNode, LogicNode, LogicNodeContext, ValidationStrategy, Omit} from "./dfe-stream";
 
 function shallowCompare(obj1: any, obj2: any) {
     if( obj1===obj2 ) return true;
@@ -10,17 +10,19 @@ function shallowCompare(obj1: any, obj2: any) {
     return names.filter(n => obj1[n] !== obj2[n]).length === 0;
 }
 
-class Proxified<M extends IArfSet, P extends {model: M}, S={}, SS=any, X={}> extends React.Component<P, S, SS> implements Watcher {
+class Proxified<M extends IArfSet, P extends {model: M}, S={}, SS=any, X={}> extends React.Component<P, S, SS> implements Subscriber {
     type: ((new (props: P) => React.Component<P, S, SS>) | ((props: P) => any))&X
-    $model: M & ModelProxy<M>
+    model: M & ModelProxy<M>
+    subscription: Subscription
     constructor(props: P) {
         super(props);
-        this.$model = (props.model instanceof ModelProxy ? props.model : new ModelProxy<M>(props.model)).forWatcher(this) as M & ModelProxy<M>;
+        let px = props.model instanceof ModelProxy ? props.model : new ModelProxy<M>(props.model);
+        this.subscription = new Subscription(px, this)
+        this.model = px.withSubscription(this.subscription) as M & ModelProxy<M>;
     }
 
     componentWillUnmount() {
-        this.$model instanceof ModelProxy && this.$model.$listener.undepend();
-        this.$model = null;
+        this.subscription.terminate();
     }
 
     shouldComponentUpdate(nextProps: Readonly<P & {model: M}>, nextState: Readonly<S>): boolean {
@@ -30,7 +32,7 @@ class Proxified<M extends IArfSet, P extends {model: M}, S={}, SS=any, X={}> ext
         }
         if(nextProps.model instanceof ModelProxy) {
             let pp = this.props as {[index: string]: any}, np = nextProps as {[index: string]: any};
-            return this.$model.key !== nextProps.model.key || names.some(key => key !== 'model' && key !== 'key' && pp[key] !== np[key]);
+            return this.model.key !== nextProps.model.key || names.some(key => key !== 'model' && key !== 'key' && pp[key] !== np[key]);
         }
         return !shallowCompare(this.props, nextProps);
     }
@@ -40,16 +42,16 @@ class Proxified<M extends IArfSet, P extends {model: M}, S={}, SS=any, X={}> ext
         // forWatcher called to trigger props difference for child.
         // Non-proxified components unaware of proxy nature should just recalculate. 
         // Aware components will receive "notify" when applicable, thus eliminating difference
-        return React.createElement(this.type, Object.assign({}, this.props, {model: this.$model}));
+        return React.createElement(this.type, Object.assign({}, this.props, {model: this.model}));
     }
     notify(action?: ListenerEvent) {
-        this.$model && this.forceUpdate();
+        this.model && this.forceUpdate();
     }
 }
 
 function bfsNodeSearch<M extends IArfSet>(field: Field<M>, model: ModelProxy<M>): PipeNode {
     // TODO: elaborate...
-    let source = model.$listener.node as any as PipeNode;
+    let source = model.$subscription.subscriber as any as PipeNode;
     while(source instanceof Connected) {
         source = source.source;
     }
@@ -79,7 +81,7 @@ export const Proxify = <M extends IArfSet, P extends {model: M}, R extends React
   (clazz: ((new (props: P) => R) | ((props: P) => any))&X ) =>
     class extends Proxified<M, P, S, SS> { type = clazz } as any as (new (props: P) => R)&X
 
-class Connected<M extends IArfSet, P extends {model: M, context?: ContextModel<M>}, S, D> extends React.Component<{model: M}, {model?: ModelProxy<M>&M, data?: D, error?: string}> implements PipeNode, Watcher {
+class Connected<M extends IArfSet, P extends {model: M, context?: LogicNodeContext}, S, D> extends React.Component<{model: M}, {model?: ModelProxy<M>&M, data?: D, error?: string}> implements PipeNode, Subscriber {
     static get field(): Field<any, any> { return null; }
     static to(...other: (typeof Connected)[]) {
         Array.isArray(other) && this.field.with(...other.map(item => item.field))
@@ -90,6 +92,7 @@ class Connected<M extends IArfSet, P extends {model: M, context?: ContextModel<M
     type: (new (props: P) => React.Component<P, S>) | ((props: P) => any)
    // terminated = false
     private constructed: boolean
+    subscription: Subscription
 
     constructor(props: P) {
         super(props);
@@ -97,9 +100,10 @@ class Connected<M extends IArfSet, P extends {model: M, context?: ContextModel<M
         if(!this.source) {
             throw "Logic didn't create node yet. Is this field included in form?";
         }
-        this.state = {}
+        let px = props.model instanceof ModelProxy ? props.model : new ModelProxy<M>(props.model);
+        this.subscription = new Subscription(px, this)
+        this.state = {model: px.withSubscription(this.subscription) as any}
         this.source.subscribe(this);
-        (this.state as any).model = (props.model as any).forWatcher(this);
         this.constructed = true;
     }
     shouldComponentUpdate(nextProps: Readonly<P>, nextState: Readonly<{data: D, error: string}>): boolean {
@@ -146,12 +150,12 @@ class Connected<M extends IArfSet, P extends {model: M, context?: ContextModel<M
     }
     componentWillUnmount() {
         this.unsubscribeFrom(this.source);
-        this.state.model.$listener.undepend();
+        this.subscription.terminate();
         //this.terminated = true;
     }
 }
 
-class Errorwatch<M extends IArfSet, P extends {model: M, data?: any, context?: ContextModel<M>}, S> extends React.Component<P, {error?: string}> implements PipeNode {
+class Errorwatch<M extends IArfSet, P extends {model: M, data?: any, context?: LogicNodeContext}, S> extends React.Component<P, {error?: string}> implements PipeNode {
     state = {error: ""}
     private nextState: {error: string} = {error: ""}
     private pendingNextState: any = null;
@@ -163,7 +167,7 @@ class Errorwatch<M extends IArfSet, P extends {model: M, data?: any, context?: C
     private enabled = false
     constructor(props: P) {
         super(props);
-        const myNode = props.context.$node;
+        const myNode = props.context.node;
         myNode.parent.children.forEach(
             (map, key) => key === props.model.key && map.forEach(
                 node => node === myNode || (this.subscriptions.add(node), node.subscribe(this))
@@ -218,12 +222,12 @@ type PipeClass<OP, S, SS, X, M, D> = (new (props: OP) => React.Component<OP, S, 
 }
 
 export const Pipe = <M extends IArfSet, D=M> (settings?: {
-    get?: (proxy: M, context: ContextModel<M>) => D, // |Promise<D>
-    val?: (value: D, proxy?: M, context?: ContextModel<M>) => void|string,
+    get?: (proxy: M, context: LogicNodeContext) => D, // |Promise<D>
+    val?: (value: D, proxy?: M, context?: LogicNodeContext) => void|string,
     errorwatch?: "peers"//boolean|{target: "peers"|string|LogicNode, accept: (prev: string, next: string) => string },
     vstrategy?: ValidationStrategy
 }) => 
-    function <IP extends {model: M, data?: D, error?: string, context?: ContextModel<M>}, S, SS, OP extends Omit<IP,"data"|"error"|"context">&{model: M}, X={}>
+    function <IP extends {model: M, data?: D, error?: string, context?: LogicNodeContext}, S, SS, OP extends Omit<IP,"data"|"error"|"context">&{model: M}, X={}>
        (clazz: (( new (props: IP) => React.Component<IP, S, SS>&X ) | ( (props: IP) => any )) ) : PipeClass<OP, S, SS, X, M, D>
     {
         let {errorwatch, ...rest} = settings||{errorwatch: false};
@@ -235,7 +239,7 @@ export const Pipe = <M extends IArfSet, D=M> (settings?: {
     }
 
 export const Connect = <M, D>(field: Field<M, D>) =>
-    function <IP extends {model: M, data?: D, error?: string, context?: ContextModel<M>}, S, SS, OP extends Omit<IP,"data"|"error"|"context">&{model: M}, X={}>
+    function <IP extends {model: M, data?: D, error?: string, context?: LogicNodeContext}, S, SS, OP extends Omit<IP,"data"|"error"|"context">&{model: M}, X={}>
     (clazz: (( new (props: IP) => React.Component<IP, S, SS>&X ) | ( (props: IP) => any )) ) : PipeClass<OP, S, SS, X, M, D>
     {
         return class extends Connected<M, IP, S, D> {
