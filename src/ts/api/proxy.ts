@@ -30,13 +30,13 @@ export function Observable<T, P extends ModelProxy<T>, A=new (data: T, parent: M
                 ["$_c_"+propertyKey]: {
                     enumerable: false,
                     value: function(value: any) {
-                        ProxyUtils.copy(this[propertyKey], value);
+                        ModelUtils.copy(this[propertyKey], value);
                     }
                 },
                 ["$_r_"+propertyKey]: {
                     enumerable: false,
                     value: function(value: any) {
-                        ProxyUtils.reflect(this[propertyKey], value);
+                        ModelUtils.reflect(this[propertyKey], value);
                     }
                 }
             })
@@ -59,7 +59,8 @@ export interface IArfSet {
     readonly key? : number;
 }
 
-export interface ListenerEvent { key? : number|string, element? : string, action?: string }
+export type ListenerAction = "add"|"modify"|"delete"|"remove"|"validate"|"init"|"self"|"notify"
+export interface ListenerEvent { key? : number|string, element? : string, action?: ListenerAction }
 
 export interface Watcher {
     notify(action?: ListenerEvent): void;
@@ -111,7 +112,7 @@ export class Listener {
             }
         }
     }
-    notify(key: number|string, element: string, action?: string, value?: any) {
+    notify(key: number|string, element: string, action?: ListenerAction, value?: any) {
         let dpKey = key + '-' + element, e = this.dpMap.get(dpKey);
         e && e.forEach(node => node.notify({key : key, element : element, action : action}));
         return true;
@@ -152,7 +153,7 @@ export class ModelProxyArray<P extends ModelProxy<T>, T> extends Array<P> {
         return Array.prototype.push.apply(this, 
             items.map( item => {
                 let proxy = (new this.$clazz(<T>{}, this.$parent, this.$parentCollection, false, this.$parent.$listener));
-                ProxyUtils.copy(proxy, item);
+                ModelUtils.copy(proxy, item);
                 this.$parent.append(this.$parentCollection, false, proxy.$data);
                 return proxy;
             })
@@ -160,7 +161,7 @@ export class ModelProxyArray<P extends ModelProxy<T>, T> extends Array<P> {
     }
     shadow(item?: P|T): P {
         let proxy = (new this.$clazz(<T>{}, this.$parent, this.$parentCollection, false, this.$parent.$listener));
-        typeof item === 'object' && ProxyUtils.copy(proxy, item);
+        typeof item === 'object' && ModelUtils.copy(proxy, item);
         proxy.$persisted = null;
         return proxy;
     }
@@ -234,7 +235,7 @@ export class ModelProxy<T extends IArfSet & {[index: string]: any}> implements I
                 let obj: {} =this.$data[ element ];
                 if( !obj || typeof obj !== 'object' ) {
                     obj = this.$data[ element ] = data||{};
-                    this.$listener.notify(this.key, element, 'a');
+                    this.$listener.notify(this.key, element, "add");
                 } else {
                     // TODO: merge ? 
                 }
@@ -245,7 +246,7 @@ export class ModelProxy<T extends IArfSet & {[index: string]: any}> implements I
                     this.$data[ element ] = arr = [];
                 }
                 arr.push(obj);
-                this.$listener.notify(this.key, element, 'a');
+                this.$listener.notify(this.key, element, "add");
                 return obj;
             }
         }
@@ -256,13 +257,13 @@ export class ModelProxy<T extends IArfSet & {[index: string]: any}> implements I
         if(value === undefined || value === null || value === '') {
             if(this.$data.hasOwnProperty(element)) {
                 delete this.$data[element];
-                this.$listener.notify(this.key, element, 'd');
+                this.$listener.notify(this.key, element, "delete");
             }
         } else {
             this.persist();
             if(this.$data[element] !== value) {
                 this.$data[element] = value;
-                this.$listener.notify(this.key, element, 'm');
+                this.$listener.notify(this.key, element, "modify");
             }
         }
         return value;
@@ -283,7 +284,7 @@ export class ModelProxy<T extends IArfSet & {[index: string]: any}> implements I
                     if(collection) {
                         collection.splice(collection.indexOf(this.$persisted), 1);
                         collection.length || delete this.$parent.$data[this.$parentCollection];
-                        this.$listener.notify(this.$parent.key, this.$parentCollection, 'r');
+                        this.$listener.notify(this.$parent.key, this.$parentCollection, "remove");
                     }
                 } else {
                     this.$parent.detach();
@@ -305,7 +306,7 @@ export class ModelProxy<T extends IArfSet & {[index: string]: any}> implements I
     }
 }
 
-export namespace ProxyUtils {
+export namespace ModelUtils {
     export function castAs<T extends IArfSet>(data: {}, impl: new (data: {}, parent?: any, parentCollection?: any, single?: boolean) => ModelProxy<T>) : T {
         return typeof impl === "function" ? <any>(new impl(data, null, null, true)) : data;
     }
@@ -366,20 +367,31 @@ export namespace ProxyUtils {
     function mergeSubstet<S, D extends S>(_dest: ModelProxy<D>, _src: S, deleteMissing: boolean) {
         const dest = _dest as {[index: string]: any}, src = (typeof _src === "object" && _src || {}) as {[index: string]: any};
         const writeEmpty = !(_src instanceof ModelProxy);
-        const prefix = deleteMissing ? '$_r_' : '$_c_';
-        for(const prop in dest) {
-            if(prop !== "constructor" && prop.charAt(0) != '$') {
-                const func = dest[prefix + prop];
-                if( typeof func === 'function' ) {
-                    src[prop] === "undefined" ? deleteMissing && func.call(dest) : func.call(dest, src[prop]);
-                } else {
-                    let v = src[prop];
-                    if(v !== null && v !== undefined && (v !== "" || writeEmpty) && v !== false || deleteMissing) {
-                        dest[prop] = v;
+        if(deleteMissing) {
+            for(const prop in dest) {
+                if(prop !== "constructor" && prop.charAt(0) != '$') {
+                    const func = dest["$_r_" + prop];
+                    if( typeof func === "function" ) {
+                        src[prop] === undefined ?  func.call(dest) : func.call(dest, src[prop]);
+                    } else {
+                        dest[prop] = src[prop];
                     }
                 }
             }
-        };
+        } else {
+            for(const prop in src) {
+                if(prop !== "constructor" && prop.charAt(0) != '$') {
+                    const func = dest["$_c_" + prop], v = src[prop];
+                    if( typeof func === "function" ) {
+                        func.call(dest, v);
+                    } else {
+                        if(v !== null && v !== undefined && (v !== "" || writeEmpty) && v !== false) {
+                            dest[prop] = v;
+                        }
+                    }
+                }
+            }
+        }
     }
 
     function mergeArrays<T>(dest: T[], src: T[], deleteMissing: boolean): void {

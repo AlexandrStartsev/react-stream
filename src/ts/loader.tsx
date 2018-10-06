@@ -4,7 +4,7 @@ import { LogicProcessor } from "./api/dfe-stream";
 
 import "../../resources/es-polyfill";
 
-import { ProxyUtils } from "./api/proxy";
+import { ModelUtils } from "./api/proxy";
 import { ajaxCache } from "./api/ajaxCache";
 import { utils } from "./api/utils";
 
@@ -22,12 +22,12 @@ typeof cachePrimer === 'object' && Array.isArray(cachePrimer) && cachePrimer.for
     item => ajaxCache.storage.set(item.key, {done: "success", result: item.value, promise: Promise.resolve(item.value)})
 );
 
-(async () => {
+(async () => { 
     let formName = "quote.cmau.car";
     let { FormComponent, form, modelImpl } = await import("./forms/" + formName);
     let jsonModel = require("../../test/100cars.json"), logic: LogicProcessor;
 
-    ReactDOM.render(<FormComponent model = {(logic = new LogicProcessor(ProxyUtils.castAs(jsonModel, modelImpl), form, false)).rootModel}/>, node);
+    ReactDOM.render(<FormComponent model = {(logic = new LogicProcessor(ModelUtils.castAs(jsonModel, modelImpl), form, false)).rootModel}/>, node);
     validateButton.addEventListener('click', () => {
         $.ajax("/validate", {
             data: JSON.stringify({

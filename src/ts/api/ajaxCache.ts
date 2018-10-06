@@ -264,8 +264,9 @@ export function ajaxFeed<T>(context: ContextModel, value: T, args: AjaxFeedParam
     };
     let p = ajaxCache.get(args.query);
     if(!p.done) {
-        context.await(p.promise, onSuccess, onReject);
+        // await has to be after result or await flag will reset
         context.result({value : value, items: [{value: undefined, description: "Loading..."}], status: AjaxStatus.loading});
+        context.await(p.promise, onSuccess, onReject);
     } else {
         ( p.done==="success" ? onSuccess : onReject )(p.result, context);
     }

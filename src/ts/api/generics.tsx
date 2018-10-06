@@ -199,20 +199,20 @@ export class EditboxMoney extends Editbox {
     }
 }
 
-type DropdownProps<V extends string|number|string[]> = {
+type DropdownProps<V extends string|number> = {
     data: {value: V, items: Array<{value: V, description: string}>}
     set: (value: V, event: React.ChangeEvent<HTMLSelectElement>) => void
-    emptyOption?: boolean|string
     style?: React.CSSProperties
     disabled?: boolean
 }
 
-export class Dropdown<V extends string|number|string[]> extends React.Component<DropdownProps<V>> {
+export class Dropdown<V extends string|number> extends React.Component<DropdownProps<V>> {
     render() {
-        let {data, set, emptyOption, ...rest} = this.props, v: {value: V, description: string};
+        let {data, set, ...rest} = this.props, v: {value: V, description: string};
+        let hiddenOption = data.items.some(item => item.value == data.value) ? "" : data.value;
         return (
-            <select onChange={e => set && set((v=data.items[e.target.selectedIndex + (emptyOption ? -1 : 0)], v ? v.value : null), e)} value={data.value} {...rest}>
-                {emptyOption ? <option value="" key={-1}>{typeof emptyOption === "string" ? emptyOption : "Please select..."}</option> : null}
+            <select onChange={e => set && set((v=data.items[e.target.selectedIndex - 1], v ? v.value : null), e)} value={data.value} {...rest}>
+                <option value={hiddenOption} key={-1} disabled hidden>Please select...</option>
                 {data.items.map(i => <option value={i.value} key={i.description}>{i.description}</option> )}
             </select>
         )
@@ -269,8 +269,8 @@ type TabComponentProps<M> = {
     tabStyle?: React.CSSProperties,
     activeTab?: number,
     autoFocusNew?: boolean,
-    headerFactory: (item?: M, active?: boolean) => React.ReactNode,
-    bodyFactory: (item?: M) => React.ReactNode,
+    headerFactory: (item?: M, active?: boolean, index?: number) => React.ReactNode,
+    bodyFactory: (item?: M, index?: number) => React.ReactNode,
     bodyClass?: string,
     bodyStyle?: React.CSSProperties
 }
@@ -295,24 +295,24 @@ export class TabComponent<M extends IArfSet> extends React.Component<TabComponen
         return {lastItems: newItems}
     }
     render() {
-        let activeItem: M;
+        let activeItem: M, activeIndex: number;
         return (
             <div className={this.props.className} style={this.props.style}>
                 <div className={this.props.headerClass} style={this.props.headerStyle}>
-                    { this.props.items.map( item => {
+                    { this.props.items.map( (item, i) => {
                         let isActive = item.key === this.state.activeTab;
-                        isActive && (activeItem = item);
+                        isActive && (activeItem = item, activeIndex = i);
                         return <div 
                             key={item.key}
                             onClick={() => this.setState({activeTab: item.key})} 
                             className={ isActive ? this.props.activeTabClass : this.props.tabClass }
                             style={ isActive ? this.props.activeTabStyle : this.props.tabStyle} > 
-                            { this.props.headerFactory(item, isActive) }
+                            { this.props.headerFactory(item, isActive, i) }
                         </div>
                     })}
                 </div>
                 <div className={this.props.bodyClass} style={this.props.bodyStyle}>
-                    { activeItem ? this.props.bodyFactory(activeItem) : null }
+                    { activeItem ? this.props.bodyFactory(activeItem, activeIndex) : null }
                 </div>
             </div>
         )

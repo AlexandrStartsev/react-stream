@@ -38,8 +38,8 @@ export class ContextModel<M=IArfSet> {
     // TODO: all this should be moved to logic node. 
     result(data: any, error?: string) {
         let node = this.$node;
-        this.$await = null;
         if(data !== undefined) {
+            this.$await = null;
             if(error === undefined) {
                 let {lastNotifications, field, lastError} = node;
                 let validationResult = '';
@@ -53,13 +53,14 @@ export class ContextModel<M=IArfSet> {
             node.accept(data, error, null);
         } else {
             if(error !== undefined) {
+                this.$await = null;
                 node.accept(node.lastData, error, null);
             }
         }
     }
     reject() {
         this.$await = null;
-        this.$node.notify({action: 'notify'});
+        this.$node.notify({action: "notify"});
     }                
     destroy() {
         this.$await = null;
@@ -70,6 +71,9 @@ export class ContextModel<M=IArfSet> {
             v => onSuccess ? onSuccess(v, this) : this.result(v),
             v => onReject ? onReject(v, this) : this.result(undefined, v)
         );
+    }
+    awaitNoResolve(promise: Promise<any>) {
+        this.$await = promise.then(() => this.$await = null, () => this.$await = null);
     }
     lastError() {
         return this.$node.lastError;
@@ -102,10 +106,8 @@ export class Field<P extends IArfSet, D=P> {
 }
 
 export interface PipeNode {
-    readonly terminated?: boolean
     accept(data: any, error: string, producer: PipeNode): any
     subscribe(consumer: PipeNode): void
-    terminate(): void
     unsubscribe(consumer: PipeNode): void
     unsubscribeFrom(producer: PipeNode): void
 }
@@ -117,8 +119,8 @@ export class LogicNode implements PipeNode, Watcher {
     lastError: any   
     field: Field<any, any>
     terminated: boolean
-    //source: PipeNode TODO: chain
-    consumers: PipeNode[] = [] // TODO: multiple consumers
+    //source: PipeNode TODO: generic chain instead of "children" map ?
+    consumers: PipeNode[] = []
     runtime: LogicProcessor
     notifications?: ListenerEvent[] = []
     lastNotifications: ListenerEvent[]
@@ -137,10 +139,34 @@ export class LogicNode implements PipeNode, Watcher {
     }
     notify(action?: ListenerEvent|ListenerEvent[]) {
         if(!this.terminated) {
-            Array.isArray(action) ? this.notifications.splice(this.notifications.length, 0, ...action) : this.notifications.push(action || { action : 'self' });
+            Array.isArray(action) ? this.notifications.splice(this.notifications.length, 0, ...action) : this.notifications.push(action || { action : "self" });
             this.runtime.scheduleWork(this);
         }
         return this;
+    }
+    reconcileChildren(rowProxies: ModelProxy<any>[], events: ListenerEvent[]) {
+        let childFields = this.field.children;
+        if( this.children.size || childFields.length ) {
+            let rows: Map<number, ModelProxy<any>> = new Map();
+            let rkeys: Set<number> = new Set();
+            let m: Map<Field<any, any>, LogicNode>, proxy: ModelProxy<any>;
+            this.children.forEach( (_, key) => rkeys.add(key) );
+            rowProxies.forEach(r => { rows.set(r.key, r); rkeys.add(r.key)});
+            rkeys.forEach( key => { 
+                proxy = rows.get(key); 
+                if(m = this.children.get(key)) {
+                    proxy || (childFields.forEach(k => m.get(k).terminate()), this.children.delete(key));
+                } else {
+                    this.children.set(key, m = new Map()); 
+                    childFields.forEach(field => {
+                        let child = new LogicNode(this, field, proxy, this.runtime);
+                        this.runtime.addNode(child);
+                        child.notify(events);
+                        m.set(field, child);
+                    });
+                }
+            });
+        }
     }
     accept(data: any, error: string, producer: PipeNode) {
         if(!this.terminated) {
@@ -149,9 +175,7 @@ export class LogicNode implements PipeNode, Watcher {
                 // todo: evaliate lastData vs data and maybe skip rendering/child reconciliation 
                 if(childrenFields.length) {
                     let arr = data && typeof data === 'object' ? ( Array.isArray(data) ? data : [data] ) : []
-                    // ??
-                    //arr.map(d => d instanceof JsonProxy ? d : new JsonProxy(d));
-                    this.runtime.reconcileChildren(this, arr, this.lastNotifications);
+                    this.reconcileChildren(arr, this.lastNotifications);
                 }
                 this.lastData = data;
                 this.lastError = error;
@@ -164,17 +188,10 @@ export class LogicNode implements PipeNode, Watcher {
     }
     terminate() {
         if(!this.terminated) {
-            this.context.destroy();
-            if(this.parent) {
-                let fieldMap = this.parent.children.get(this.model.key);
-                if(fieldMap) {
-                    fieldMap.delete(this.field);
-                    fieldMap.size || this.parent.children.delete(this.model.key);
-                }
-                this.parent = null;
-            }
             this.terminated = true;
+            this.context.destroy();
             this.consumers.forEach(c => c.unsubscribeFrom(this));
+            this.children.forEach(map => map.forEach( node => node.terminate() ));
         }
     }
     subscribe(consumer: PipeNode) {
@@ -184,7 +201,8 @@ export class LogicNode implements PipeNode, Watcher {
         }
     }
     unsubscribe(consumer: PipeNode) {
-        this.consumers.splice(this.consumers.indexOf(consumer), 1);
+        // Important, otherwise while terminating not all consumers will be visited to unsubscribe
+        this.terminated || this.consumers.splice(this.consumers.indexOf(consumer), 1);
     }
     unsubscribeFrom(producer: PipeNode) {
         // no-op for now 
@@ -228,11 +246,11 @@ export class LogicProcessor<M={}> {
     nodes: LogicNode[]
     scheduledWork: any
     rootModel: M
-    constructor(rootProxy: ModelProxy<M>, rootField: Field<any, any>, validate: boolean) {
-        this.nodes = [];
-        this.scheduledWork = null;
-        this.addNode( null, rootProxy, rootField, [{ action: validate ? "validate" : "init" }] );
-        this.rootModel = this.nodes[0].model as any;
+    constructor(rootProxy: ModelProxy<M>, rootField: Field<M, any>, validate: boolean) {
+        let rootNode = new LogicNode(null, rootField, rootProxy, this);
+        rootNode.notify({ action: validate ? "validate" : "init" })
+        this.rootModel = rootNode.model as any;
+        this.nodes = [rootNode];
         this.processInterceptors();
     }
     scheduleWork(node: LogicNode) {
@@ -242,8 +260,7 @@ export class LogicProcessor<M={}> {
         this.scheduledWork && clearImmediate(this.scheduledWork);
         this.scheduledWork=null;
         if(this.nodes.length) {
-            let root = this.nodes[0];
-            this.evictNode(root);
+            this.nodes[0].terminate();
             this.nodes = []
         }
     }
@@ -274,37 +291,8 @@ export class LogicProcessor<M={}> {
             this.nodes.splice(cur);
         }
     }
-    addNode(parent: LogicNode, proxy: ModelProxy<any>, field: Field<any, any>, initAction: ListenerEvent[]) {
-        let node = new LogicNode(parent, field, proxy, this);
-        node.notify(initAction);
+    addNode(node: LogicNode) {
         this.nodes.push(node);
-        return node;
-    }
-    evictNode(node: LogicNode) {
-        delete node.lastError;
-        node.children.forEach(fieldMap => fieldMap.forEach( node => this.evictNode(node)));
-        node.terminate();
-    }
-    // TODO: all this should be moved to logic node. Logic processor should be unaware of its internal structure and should serve as scheduler only
-    reconcileChildren(parent: LogicNode, rowProxies: ModelProxy<any>[], events: ListenerEvent[]) {
-        let childFields = parent.field.children;
-        let lastChildren = parent.children;
-        if( lastChildren.size || childFields.length ) {
-            let rows: Map<number, ModelProxy<any>> = new Map();
-            let rkeys: Set<number> = new Set();
-            let m: Map<Field<any, any>, LogicNode>, present: ModelProxy<any>;
-            lastChildren.forEach( (_, k) => rkeys.add(k) );
-            rowProxies.forEach(r => { rows.set(r.key, r); rkeys.add(r.key)});
-            rkeys.forEach( r => { 
-                present = rows.get(r); 
-                if(m = lastChildren.get(r)) {
-                    present || (childFields.forEach(k => this.evictNode(m.get(k))), lastChildren.delete(r));
-                } else {
-                    lastChildren.set(r, m = new Map()); 
-                    childFields.forEach(k => m.set(k, this.addNode(parent, present, k, events)));
-                }
-            });
-        }
     }
     logic(node: LogicNode) {
         if(node.notifications.length && !node.terminated) {

@@ -5,7 +5,7 @@
 
 import "../../resources/es-polyfill";
 
-import { ProxyUtils } from "./api/proxy";
+import { ModelUtils } from "./api/proxy";
 import { ajaxCache } from "./api/ajaxCache";
 import { LogicProcessor } from "./api/dfe-stream";
 
@@ -61,9 +61,9 @@ class Service {
     }*/
     async validate(formName: string, data: {}) {
         try {
-            let setup = await import("./forms/" + formName);
-            let logic = await new LogicProcessor(ProxyUtils.castAs(Object.assign({}, data), setup.modelImpl), setup.form, true).waitForPipeLine();
-            return logic.nodes.map(n => n.lastError).filter(reject => !!reject);
+            const setup = await import("./forms/" + formName);
+            const logic = await new LogicProcessor(ModelUtils.castAs(data, setup.modelImpl), setup.form, true).waitForPipeLine();
+            return logic.nodes.map(n => n.lastError).filter(err => !!err);
         } catch(e) {
             return ["Exception during validation" + (typeof e === "object" ? e.message + e.stack : e)];
         }
@@ -75,7 +75,7 @@ class Service {
 
         try {
             let setup = await import("./forms/" + formName);
-            let logic = await new LogicProcessor(ProxyUtils.castAs(Object.assign({}, data), setup.modelImpl), setup.form, false).waitForPipeLine();
+            let logic = await new LogicProcessor(ModelUtils.castAs(Object.assign({}, data), setup.modelImpl), setup.form, false).waitForPipeLine();
             let cache = ajaxCache.storage.getAccessedSince(cacheTimeStamp);
             let html = renderToString(React.createElement(setup.FormComponent, {model: logic.rootModel}));
             return {

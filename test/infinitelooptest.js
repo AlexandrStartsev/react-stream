@@ -5,6 +5,6 @@
   setInterval(function () {
     var id = 'duration' + (++i);
     console.time(id);
-    service.validate("quote.cmau.car", Object.assign({}, data), e => (console.timeEnd(id), console.log(e)));
-  }, 1000);
+    service.validate("quote.cmau.car", data).then(() => console.timeEnd(id));
+  }, 100);
 })();

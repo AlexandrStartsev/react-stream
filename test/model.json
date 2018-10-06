@@ -614,7 +614,7 @@
             {
               "controlNbr": "OLD  1988 1G3WS14W\\CJD\\R300001-999999",
               "coverages": {
-                "collisionDeductible": "1000",
+                "collisionDeductible": "~",
                 "comprehensiveDeductible": "1000",
                 "liab": {
                   "includeInd": "Y"

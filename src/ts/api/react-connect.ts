@@ -80,10 +80,15 @@ export const Proxify = <M extends IArfSet, P extends {model: M}, R extends React
     class extends Proxified<M, P, S, SS> { type = clazz } as any as (new (props: P) => R)&X
 
 class Connected<M extends IArfSet, P extends {model: M, context?: ContextModel<M>}, S, D> extends React.Component<{model: M}, {model?: ModelProxy<M>&M, data?: D, error?: string}> implements PipeNode, Watcher {
+    static get field(): Field<any, any> { return null; }
+    static to(...other: (typeof Connected)[]) {
+        Array.isArray(other) && this.field.with(...other.map(item => item.field))
+        return this;
+    }
+
     source: PipeNode
     type: (new (props: P) => React.Component<P, S>) | ((props: P) => any)
-    static get field(): Field<any, any> { return null; }
-    terminated = false
+   // terminated = false
     private constructed: boolean
 
     constructor(props: P) {
@@ -92,15 +97,10 @@ class Connected<M extends IArfSet, P extends {model: M, context?: ContextModel<M
         if(!this.source) {
             throw "Logic didn't create node yet. Is this field included in form?";
         }
+        this.state = {}
         this.source.subscribe(this);
-        // We could piggy-back on logic's proxy, but then some UI-only updates would also trigger logic to recompute. 
-        this.state = this.state || {};
         (this.state as any).model = (props.model as any).forWatcher(this);
         this.constructed = true;
-    }
-    componentWillUnmount() {
-        this.source.unsubscribe(this);
-        this.state.model.$listener.undepend();
     }
     shouldComponentUpdate(nextProps: Readonly<P>, nextState: Readonly<{data: D, error: string}>): boolean {
         if(this.state.data !== nextState.data || this.state.error != nextState.error ) {
@@ -128,38 +128,45 @@ class Connected<M extends IArfSet, P extends {model: M, context?: ContextModel<M
     accept(data: any, error: string) {
         if(this.constructed) {
             // ???
-            setImmediate(() => this.terminated || this.setState({data: data, error: error}));
+            //setImmediate(() => this.terminated || this.setState({data: data, error: error}));
+            this.setState({data: data, error: error});
         } else {
-            this.state = Object.assign(this.state||{}, {data: data, error: error});
+            this.state = Object.assign(this.state, {data: data, error: error});
         }
     }
     notify() {
         // ???
-        this.terminated || this.forceUpdate();
+        //this.terminated || 
+        this.forceUpdate();
     }
     subscribe(consumer: PipeNode) {}
     unsubscribe(consumer: PipeNode) {}
     unsubscribeFrom(producer: PipeNode) {
-        this.terminated = true;
+        producer.unsubscribe(this);
     }
-    terminate() {}
-    static to(...other: (typeof Connected)[]) {
-        Array.isArray(other) && this.field.with(...other.map(item => item.field))
-        return this;
+    componentWillUnmount() {
+        this.unsubscribeFrom(this.source);
+        this.state.model.$listener.undepend();
+        //this.terminated = true;
     }
 }
 
 class Errorwatch<M extends IArfSet, P extends {model: M, data?: any, context?: ContextModel<M>}, S> extends React.Component<P, {error?: string}> implements PipeNode {
-    state: {error?: string} = {}
+    state = {error: ""}
+    private nextState: {error: string} = {error: ""}
+    private pendingNextState: any = null;
+
+    subscriptions = new Set<PipeNode>()
     erroring = new Set<PipeNode>()
     type: (new (props: P) => React.Component<P, S>) | ((props: P) => any)
-    private constructed: boolean
+    private constructed = false
+    private enabled = false
     constructor(props: P) {
         super(props);
         const myNode = props.context.$node;
         myNode.parent.children.forEach(
             (map, key) => key === props.model.key && map.forEach(
-                node => node === myNode || node.subscribe(this)
+                node => node === myNode || (this.subscriptions.add(node), node.subscribe(this))
             )
         )
         this.constructed = true;
@@ -173,22 +180,36 @@ class Errorwatch<M extends IArfSet, P extends {model: M, data?: any, context?: C
         }) as any);
     }
     accept(data: any, error: string, producer: LogicNode) {
-        producer.children.forEach(map => map.forEach(node => node.subscribe(this)));
-        error ? this.erroring.add(producer) : this.erroring.delete(producer);
-        const ste = {error: this.erroring.size ? "error" : ""};
-        if(this.constructed) {
-            this.state.error === ste.error || this.setState(ste);
-        } else {
-            this.state = ste
+        if(this.enabled || (this.enabled = producer.lastNotifications.some(n => n.action === "validate"))) {
+            producer.children.forEach(map => map.forEach(
+                node => this.subscriptions.has(node) || (this.subscriptions.add(node), node.subscribe(this))
+            ));
+            error ? this.erroring.add(producer) : this.erroring.delete(producer);
+            this.scheduleUpdate();
+        }
+    }
+    scheduleUpdate() {
+        const cmpError = this.erroring.size ? "error" : "";
+        if(cmpError !== this.nextState.error) {
+            if(this.constructed) {
+                this.nextState = {error: cmpError};
+                this.pendingNextState || (this.pendingNextState = setImmediate(() => (this.pendingNextState = null, this.setState(this.nextState))));
+            } else {
+                this.state = this.nextState = {error: cmpError};
+            }
         }
     }
     subscribe(consumer: PipeNode) { /*no-op*/ }
     unsubscribe(consumer: PipeNode) { /*no-op*/ }
     unsubscribeFrom(producer: PipeNode) { 
+        this.subscriptions.delete(producer);
         this.erroring.delete(producer);
-        this.setState({error: this.erroring.size ? "error" : ""});
+        this.scheduleUpdate();
     }
-    terminate() { /*no-op*/ }
+    componentWillUnmount() {
+        this.subscriptions.forEach(node => node.unsubscribe(this));
+        this.pendingNextState && clearImmediate(this.pendingNextState);
+    }
 }
 
 type PipeClass<OP, S, SS, X, M, D> = (new (props: OP) => React.Component<OP, S, SS>&X) & {
@@ -209,6 +230,16 @@ export const Pipe = <M extends IArfSet, D=M> (settings?: {
         let field = new Field(rest)
         return class extends Connected<M, IP, S, D> {
             type = errorwatch ? ( class extends Errorwatch<M, IP, S> { type = clazz } as any ) : clazz
+            static get field() { return field }
+        }  as any
+    }
+
+export const Connect = <M, D>(field: Field<M, D>) =>
+    function <IP extends {model: M, data?: D, error?: string, context?: ContextModel<M>}, S, SS, OP extends Omit<IP,"data"|"error"|"context">&{model: M}, X={}>
+    (clazz: (( new (props: IP) => React.Component<IP, S, SS>&X ) | ( (props: IP) => any )) ) : PipeClass<OP, S, SS, X, M, D>
+    {
+        return class extends Connected<M, IP, S, D> {
+            type =clazz
             static get field() { return field }
         }  as any
     }
