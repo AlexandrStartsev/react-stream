@@ -20,7 +20,7 @@ const client = {
   entry: {
     loader: './src/ts/loader.tsx'
   },
-  mode: "development",
+  mode: "production",
   plugins: [
     new CleanWebpackPlugin(["target/webpack"]), 
     new HtmlWebpackPlugin({ title: "Pipe stream" }),
@@ -104,7 +104,7 @@ const server = {
     'xmlhttprequest': 'commonjs xmlhttprequest'
   },
   optimization: {
-    //minimize: false,
+    minimize: false,
     splitChunks: {
       chunks: 'all'
     }

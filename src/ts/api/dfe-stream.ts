@@ -1,6 +1,7 @@
 import { IArfSet, ModelProxy, Listener, Watcher, ListenerEvent } from "./proxy";
 
 export type Diff<T extends string | number | symbol, U extends string | number | symbol> = ({[P in T]: P } & {[P in U]: never } & { [x: string]: never })[T];  
+export type Pick<T, K extends keyof T> = {[P in K]: T[P]}
 export type Omit<T, K extends keyof T> = Pick<T, Diff<keyof T, K>>;
 
 
@@ -34,35 +35,45 @@ export class ContextModel<M=IArfSet> {
         this.$unbound = unbound;
         this.$await = null;
     }
+    // TODO: all this should be moved to logic node. 
     result(data: any, error?: string) {
         let node = this.$node;
         if(data !== undefined) {
+            this.$await = null;
             if(error === undefined) {
                 let {lastNotifications, field, lastError} = node;
                 let validationResult = '';
                 try {
-                    validationResult = (lastError || doValidation(lastNotifications, field.vstrategy)) && field.val && field.val(data, node.model, this, lastNotifications) || '';
+                    validationResult = (lastError || doValidation(lastNotifications, field.vstrategy)) && field.val && field.val(data, node.model, this) || '';
                 } catch(e) {
                     validationResult = e.message || 'exception';
                 }
                 error = typeof validationResult === 'string' ? validationResult : '';
             }
-            node.accept(data, error);
+            node.accept(data, error, null);
         } else {
             if(error !== undefined) {
-                node.accept(node.lastData, error);
+                this.$await = null;
+                node.accept(node.lastData, error, null);
             }
         }
     }
     reject() {
-        this.$node.notify({action: 'notify'});
+        this.$await = null;
+        this.$node.notify({action: "notify"});
     }                
     destroy() {
         this.$await = null;
         this.$model.$listener.undepend();
     }
     await<T>(promise: Promise<T>, onSuccess?: (data: T, context: this) => T, onReject?: (reason: any, context: this) => void): void {
-        this.$await = promise.then( a => (this.$await = null, onSuccess && onSuccess(a, this)), b => (this.$await = null, onReject && onReject(b, this)) );
+        this.$await = promise.then(
+            v => onSuccess ? onSuccess(v, this) : this.result(v),
+            v => onReject ? onReject(v, this) : this.result(undefined, v)
+        );
+    }
+    awaitNoResolve(promise: Promise<any>) {
+        this.$await = promise.then(() => this.$await = null, () => this.$await = null);
     }
     lastError() {
         return this.$node.lastError;
@@ -71,15 +82,15 @@ export class ContextModel<M=IArfSet> {
 
 
 interface FieldProps<P, C> {
-    get?: (proxy: P, context: ContextModel<P>, events?: ListenerEvent[]) => C
-    val?: (value: C, proxy?: P, context?: ContextModel<P>, events?: ListenerEvent[]) => void|string
+    get?: (proxy: P, context: ContextModel<P>) => C|Promise<C>
+    val?: (value: C, proxy?: P, context?: ContextModel<P>) => void|string
     vstrategy?: ValidationStrategy
 }
 
 type ArrayItem<A> = A extends Array<infer I> ? I : never
 export class Field<P extends IArfSet, D=P> {
-    get: (proxy: P, context: ContextModel<P>, events?: ListenerEvent[]) => D
-    val?: (value: any, proxy: IArfSet, context: ContextModel<P>, events: ListenerEvent[]) => void|string
+    get: (proxy: P, context: ContextModel<P>) => D|Promise<D>
+    val?: (value: any, proxy: IArfSet, context: ContextModel<P>) => void|string
     vstrategy: ValidationStrategy
 
     children: Field<ArrayItem<D>, any>[] = []
@@ -95,14 +106,10 @@ export class Field<P extends IArfSet, D=P> {
 }
 
 export interface PipeNode {
-    terminated?: boolean
-    lastData?: any
-    lastError?: string
-    source?: PipeNode
-    consumer?: PipeNode[]
-    accept(data: any, error?: string): any
-    terminate(): any
-    //follow(target: PipeNode): any
+    accept(data: any, error: string, producer: PipeNode): any
+    subscribe(consumer: PipeNode): void
+    unsubscribe(consumer: PipeNode): void
+    unsubscribeFrom(producer: PipeNode): void
 }
 
 export class LogicNode implements PipeNode, Watcher {
@@ -112,8 +119,8 @@ export class LogicNode implements PipeNode, Watcher {
     lastError: any   
     field: Field<any, any>
     terminated: boolean
-    //source: PipeNode TODO: chain
-    consumer: PipeNode[] = [] // TODO: multiple consumers
+    //source: PipeNode TODO: generic chain instead of "children" map ?
+    consumers: PipeNode[] = []
     runtime: LogicProcessor
     notifications?: ListenerEvent[] = []
     lastNotifications: ListenerEvent[]
@@ -132,25 +139,47 @@ export class LogicNode implements PipeNode, Watcher {
     }
     notify(action?: ListenerEvent|ListenerEvent[]) {
         if(!this.terminated) {
-            Array.isArray(action) ? this.notifications.splice(this.notifications.length, 0, ...action) : this.notifications.push(action || { action : 'self' });
+            Array.isArray(action) ? this.notifications.splice(this.notifications.length, 0, ...action) : this.notifications.push(action || { action : "self" });
             this.runtime.scheduleWork(this);
         }
         return this;
     }
-    accept(data: any, error?: string) {
+    reconcileChildren(rowProxies: ModelProxy<any>[], events: ListenerEvent[]) {
+        let childFields = this.field.children;
+        if( this.children.size || childFields.length ) {
+            let rows: Map<number, ModelProxy<any>> = new Map();
+            let rkeys: Set<number> = new Set();
+            let m: Map<Field<any, any>, LogicNode>, proxy: ModelProxy<any>;
+            this.children.forEach( (_, key) => rkeys.add(key) );
+            rowProxies.forEach(r => { rows.set(r.key, r); rkeys.add(r.key)});
+            rkeys.forEach( key => { 
+                proxy = rows.get(key); 
+                if(m = this.children.get(key)) {
+                    proxy || (childFields.forEach(k => m.get(k).terminate()), this.children.delete(key));
+                } else {
+                    this.children.set(key, m = new Map()); 
+                    childFields.forEach(field => {
+                        let child = new LogicNode(this, field, proxy, this.runtime);
+                        this.runtime.addNode(child);
+                        child.notify(events);
+                        m.set(field, child);
+                    });
+                }
+            });
+        }
+    }
+    accept(data: any, error: string, producer: PipeNode) {
         if(!this.terminated) {
             let childrenFields = this.field.children;
             if(data !== undefined) {
                 // todo: evaliate lastData vs data and maybe skip rendering/child reconciliation 
                 if(childrenFields.length) {
                     let arr = data && typeof data === 'object' ? ( Array.isArray(data) ? data : [data] ) : []
-                    // ??
-                    //arr.map(d => d instanceof JsonProxy ? d : new JsonProxy(d));
-                    this.runtime.reconcileChildren(this, arr, this.lastNotifications);
+                    this.reconcileChildren(arr, this.lastNotifications);
                 }
                 this.lastData = data;
                 this.lastError = error;
-                this.consumer.forEach(c => c.accept(data, error));
+                this.consumers.forEach(c => c.accept(data, error, this));
                 this.runtime.scheduleWork(this);
             } else {
                 this.lastError = error;
@@ -158,21 +187,25 @@ export class LogicNode implements PipeNode, Watcher {
         }
     }
     terminate() {
-        //this.control.destroy();
         if(!this.terminated) {
-            this.context.destroy();
-            if(this.parent) {
-                let fieldMap = this.parent.children.get(this.model.key);
-                if(fieldMap) {
-                    fieldMap.delete(this.field);
-                    fieldMap.size || this.parent.children.delete(this.model.key);
-                }
-                this.parent = null;
-            }
             this.terminated = true;
-            this.consumer.forEach(c => c.terminate());
-            this.consumer = null;
+            this.context.destroy();
+            this.consumers.forEach(c => c.unsubscribeFrom(this));
+            this.children.forEach(map => map.forEach( node => node.terminate() ));
         }
+    }
+    subscribe(consumer: PipeNode) {
+        if(!this.terminated && this.consumers.indexOf(consumer) == -1) {
+            this.consumers.push(consumer);
+            this.lastData !== undefined && consumer.accept(this.lastData, this.lastError, this);
+        }
+    }
+    unsubscribe(consumer: PipeNode) {
+        // Important, otherwise while terminating not all consumers will be visited to unsubscribe
+        this.terminated || this.consumers.splice(this.consumers.indexOf(consumer), 1);
+    }
+    unsubscribeFrom(producer: PipeNode) {
+        // no-op for now 
     }
 }
 
@@ -213,38 +246,39 @@ export class LogicProcessor<M={}> {
     nodes: LogicNode[]
     scheduledWork: any
     rootModel: M
-    constructor(rootProxy: ModelProxy<M>, rootField: Field<any, any>, validate: boolean) {
-        this.nodes = [];
-        this.scheduledWork = null;
-        this.addNode( null, rootProxy, rootField, [{ action: validate ? "validate" : "init" }] );
-        this.rootModel = this.nodes[0].model as any;
+    constructor(rootProxy: ModelProxy<M>, rootField: Field<M, any>, validate: boolean) {
+        let rootNode = new LogicNode(null, rootField, rootProxy, this);
+        rootNode.notify({ action: validate ? "validate" : "init" })
+        this.rootModel = rootNode.model as any;
+        this.nodes = [rootNode];
         this.processInterceptors();
     }
     scheduleWork(node: LogicNode) {
-        this.scheduledWork || (this.scheduledWork = (typeof setImmediate === "function" ? setImmediate : setTimeout)(this.processInterceptors.bind(this)));
+        this.scheduledWork || (this.scheduledWork = setImmediate(this.processInterceptors.bind(this)));
     }
-    destroy() { 
-        this.scheduledWork && (typeof clearImmediate === "function" ? clearImmediate : clearInterval)(this.scheduledWork);
+    destroy() {
+        this.scheduledWork && clearImmediate(this.scheduledWork);
         this.scheduledWork=null;
         if(this.nodes.length) {
-            let root = this.nodes[0];
-            this.evictNode(root);
+            this.nodes[0].terminate();
             this.nodes = []
         }
     }
-    enforceValidation(readyCb?: (rejectReason?: any) => void) {
+    enforceValidation() {
         this.nodes.forEach(node => node.notify({action: 'validate'}));
-        readyCb && this.waitForPipeLine(readyCb);
+        return this.waitForPipeLine();
     }      
-    waitForPipeLine(readyCb: (rejectReason?: any) => void) {
-        let pending:any[] = [];
-        try {
-            this.processInterceptors();
-            this.scheduledWork || (pending = this.nodes.map(n => n.context.$await).filter(a => !!a)).length ? 
-                Promise.all(pending).then(this.waitForPipeLine.bind(this, readyCb), readyCb) : readyCb();
-        } catch(e) {
-            readyCb(e);
-        }
+    waitForPipeLine() {
+        return new Promise<LogicProcessor>((resolve, reject) => {
+            let pending:any[] = [];
+            try {
+                this.processInterceptors();
+                this.scheduledWork || (pending = this.nodes.map(n => n.context.$await).filter(a => !!a)).length ? 
+                    Promise.all(pending).then(() => this.waitForPipeLine().then(resolve, reject), reject) : resolve(this);
+            } catch(e) {
+                reject(e);
+            }
+        });
     }
     processInterceptors() {
         if(this.scheduledWork) {
@@ -257,37 +291,8 @@ export class LogicProcessor<M={}> {
             this.nodes.splice(cur);
         }
     }
-    addNode(parent: LogicNode, proxy: ModelProxy<any>, field: Field<any, any>, initAction: ListenerEvent[]) {
-        let node = new LogicNode(parent, field, proxy, this);
-        node.notify(initAction);
+    addNode(node: LogicNode) {
         this.nodes.push(node);
-        return node;
-    }
-    evictNode(node: LogicNode) {
-        delete node.lastError;
-        node.terminated = true;
-        node.children.forEach(fieldMap => fieldMap.forEach( node => this.evictNode(node)));
-        node.terminate();
-    }
-    reconcileChildren(parent: LogicNode, rowProxies: ModelProxy<any>[], events: ListenerEvent[]) {
-        let childFields = parent.field.children;
-        let lastChildren = parent.children;
-        if( lastChildren.size || childFields.length ) {
-            let rows: Map<number, ModelProxy<any>> = new Map();
-            let rkeys: Set<number> = new Set();
-            let m: Map<Field<any, any>, LogicNode>, present: ModelProxy<any>;
-            lastChildren.forEach( (_, k) => rkeys.add(k) );
-            rowProxies.forEach(r => { rows.set(r.key, r); rkeys.add(r.key)});
-            rkeys.forEach( r => { 
-                present = rows.get(r); 
-                if(m = lastChildren.get(r)) {
-                    present || (childFields.forEach(k => this.evictNode(m.get(k))), lastChildren.delete(r));
-                } else {
-                    lastChildren.set(r, m = new Map()); 
-                    childFields.forEach(k => m.set(k, this.addNode(parent, present, k, events)));
-                }
-            });
-        }
     }
     logic(node: LogicNode) {
         if(node.notifications.length && !node.terminated) {
@@ -295,14 +300,15 @@ export class LogicProcessor<M={}> {
             node.notifications = [];
             let {context, field, model} = node;
             try {
-                context.result(field.get(model, context, node.lastNotifications));
+                const rez = field.get(model, context);
+                rez instanceof Promise ? context.await(rez) : context.result(rez);
             } catch(e) {
                 context.result(undefined, e.message);
-                console.error(node.field + '\n' + e.message + '\n' + e.stack); 
+                //console.error(node.field + '\n' + e.message + '\n' + e.stack); 
             }
         }
     }
     findNodes<T, D>(field: Field<T, D>, modelKey: number|string) {
         return this.nodes.filter( node => node.field === field && node.model.key === modelKey );
     }
-}//const { Provider: LogicContextProvider, Consumer: LogicContextConsumer} = React.createContext({} as LogicProcessor);
+}

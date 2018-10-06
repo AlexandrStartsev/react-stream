@@ -16,7 +16,7 @@ http.createServer((req, res) => {
                 const parsed = JSON.parse(data), formName = parsed.formName, payload = parsed.payload;
                 res.statusCode = 200;
                 res.setHeader('Content-Type', 'application/json; charset=utf-8');
-                service.validate(formName, payload, errors => {
+                service.validate(formName, payload).then(errors => {
                     res.write(JSON.stringify(errors));
                     res.end();
                 });

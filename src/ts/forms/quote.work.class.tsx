@@ -1,6 +1,6 @@
 import * as React from "react";
 import { ajaxFeed, ajaxRequired, AjaxChoiceInfo, ajaxCache } from "../api/ajaxCache";
-import { ProxyUtils } from "../api/proxy";
+import { ModelUtils } from "../api/proxy";
 import { CoreCommVsProxy } from "../gen/impl/com.arrow.model.def.corecomm";
 import { com } from "../gen/definitions";
 import { Editbox, Dropdown, EditboxMoney, Radiolist, stringChoiceMaker, ValidationLabel } from "../api/generics";
@@ -33,7 +33,7 @@ let simplyRequired = (ret: ChoiceInfo<string>) => required(ret)
 
 const noSpecificDisabled = (state: string) => !!state.match(/^(MO|AZ|IN|IA|KY|MT|TX)$/);
 const isMonopolisticState = (loc: ICoreCommWorkLocation) => !!loc.state.match(/^(WA|OH|ND|WY)$/);
-const fixClassCount = (loc: ICoreCommWorkLocation) => isMonopolisticState(loc) ? loc.classes.forEach(ProxyUtils.detach) : (loc.classes.length || loc.classes.push({}))
+const fixClassCount = (loc: ICoreCommWorkLocation) => isMonopolisticState(loc) ? loc.classes.forEach(ModelUtils.detach) : (loc.classes.length || loc.classes.push({}))
 
 function stopGapSelectedForBop(sg: ICoreCommWorkStopGapVs) {
     const state = sg.p.state, covs = sg.p.p.p.bbopSet.coverages, nos = [BbopStopGapLimit.NULL, BbopStopGapLimit.NO_COVERAGE];
@@ -77,7 +77,6 @@ const CityComponent = Pipe({get: (loc: ICoreCommWorkLocation) => loc.city, val: 
 const StateComponent = Pipe({get: (loc: ICoreCommWorkLocation) => stringChoiceMaker(loc.state, states), val: simplyRequired})(
     (props: {model: ICoreCommWorkLocation, context: ContextModel, data?: ChoiceInfo<string>, processNoSpecificLocationChange: (loc: ICoreCommWorkLocation, context: ContextModel, newState: string, newNoSpecificLocation: string) => void, error?: string}) => <td>
         <Dropdown 
-            emptyOption={false}
             data={props.data} 
             set={val => props.processNoSpecificLocationChange(props.model, props.context, val, props.model.noSpecificLocation)}
             style={{width: "45px", borderRadius: "1px", height: "20px"}} />
@@ -105,7 +104,7 @@ const NoSpecificComponent = Pipe()((props: {model: ICoreCommWorkLocation, contex
     </td>
 )
 
-const DeleteLoc = Proxify((props: {model: ICoreCommWorkLocation}) => <td>{props.model.p.locations.length>1 && <input type="button" onClick={() => ProxyUtils.detach(props.model)} value="Delete"/>}</td>)
+const DeleteLoc = Proxify((props: {model: ICoreCommWorkLocation}) => <td>{props.model.p.locations.length>1 && <input type="button" onClick={() => ModelUtils.detach(props.model)} value="Delete"/>}</td>)
 
 const StopGapIncludedComponent = Pipe({ get: (sg: ICoreCommWorkStopGapVs) => ({value: sg.includeInd, items: [{value: 'Y', description: "Yes"}, { value: 'N', description: "No"}]}), val: simplyRequired})(props =>
     <td>
@@ -195,7 +194,7 @@ const PayrollComponent = Pipe({get: (clazz: ICoreCommWorkClass) => clazz.payroll
 const IfAnyComponent = Proxify((props: {model: ICoreCommWorkClass}) =>
     <td style={{textAlign: "center"}}>
         <input type="checkbox" checked={props.model.ifAny === "Y"} 
-            onChange={event => ProxyUtils.copy(props.model, {
+            onChange={event => ModelUtils.copy(props.model, {
                 ifAny: event.target.checked ? "Y" : "N", ...(event.target.checked ? { fulltimeemployeeamt: '', parttimeemployeeamt: '', seasonalemployeeamt: '', payroll: '' } : {})
             })}
             disabled={props.model.ifAny !== "Y" && props.model.p.p.locations.map(loc => loc.classes).reduce((tot, cur) => tot + cur.filter(cls => cls.ifAny !== "Y").length, 0) < 2}
@@ -239,7 +238,7 @@ const ClassRowComponent = Pipe({val: (clazz: ICoreCommWorkClass) => clazz.ifAny 
             <IfAnyComponent model={clazz}/>
             { all.length > 1 &&
                 <td style={{maxWidth: "50px"}}>
-                    <input type="button" onClick={() => ProxyUtils.detach(clazz)} value="Delete" />
+                    <input type="button" onClick={() => ModelUtils.detach(clazz)} value="Delete" />
                 </td>
             }
         </tr>
@@ -405,9 +404,9 @@ const QuoteWorkClassComponent = Pipe({get: (root: ICoreCommVs) => root.policy.wo
                 let thisLoc = loc, otherLocs = loc.p.locations.filter(loc => loc.state == newState && loc.noSpecificLocation === 'Y');
                 let update = function (): void {
                     otherLocs.forEach(
-                        otherLoc => (otherLoc.classes.forEach(clazz => (thisLoc.classes.push(clazz), ProxyUtils.detach(clazz))), ProxyUtils.detach(otherLoc))
+                        otherLoc => (otherLoc.classes.forEach(clazz => (thisLoc.classes.push(clazz), ModelUtils.detach(clazz))), ModelUtils.detach(otherLoc))
                     );
-                    ProxyUtils.copy(loc, { noSpecificLocation: newNoSpecificLocation, address: '', city: '', zip: '', state: newState });
+                    ModelUtils.copy(loc, { noSpecificLocation: newNoSpecificLocation, address: '', city: '', zip: '', state: newState });
                     fixClassCount(loc);
                 }
                 if (otherLocs.length) {
@@ -434,7 +433,7 @@ const QuoteWorkClassComponent = Pipe({get: (root: ICoreCommVs) => root.policy.wo
                     update();
                 }
             } else {
-                ProxyUtils.copy(loc, {
+                ModelUtils.copy(loc, {
                     state: newState,
                     noSpecificLocation: newNoSpecificLocation,
                     ...newNoSpecificLocation === 'N' && loc.noSpecificLocation === 'Y' && newState == this.locationDefaults.state ? this.locationDefaults : {}

@@ -1,10 +1,10 @@
 import * as React from "react";
 import { ajaxCache, ajaxFeed, ajaxRequired } from "../api/ajaxCache";
-import { ProxyUtils } from "../api/proxy";
+import { ModelUtils, IArfSet } from "../api/proxy";
 import { CoreCommVsProxy } from "../gen/impl/com.arrow.model.def.corecomm";
 import { com } from "../gen/definitions";
 import { Editbox, Dropdown, EditboxMoney, Radiolist, ValidationLabel, enumChoiceMaker, TabComponent, Checkbox } from "../api/generics";
-import { Field, ChoiceInfo, required, ContextModel } from "../api/dfe-stream";
+import { Field, ChoiceInfo, required, ContextModel, PipeNode, LogicNode, Pick, Omit } from "../api/dfe-stream";
 import { Pipe, Proxify, SwitchPipe } from "../api/react-connect";
 
 import "../../../resources/dfe-style.css";
@@ -107,13 +107,13 @@ const VehicleTypeSwitch = (type: VehicleType) => Pipe({get: (car: ICoreCommCmauC
 )
 
 function vehProcessVin(car: ICoreCommCmauCarVs, context: ContextModel<ICoreCommCmauCarVs>) {
-    return car.vinnumber.length == 17 ? context.await(ajaxCache.get({
+    return car.vinnumber.length == 17 ? context.awaitNoResolve(ajaxCache.get({
         method: 'CMAUVehicleScriptHelper',
         action: 'getVinLookupResults',
         vinNumber: car.vinnumber
     }).promise.then(data => {
         let r = data.result, isTrailer = r.vehicleType == 'x';
-        ProxyUtils.copy(car, r.isMatch ? {
+        ModelUtils.copy(car, r.isMatch ? {
             vinvalid: 'Y',
             vehicleType: isTrailer ? VehicleType.Truck : r.vehicleType,
             modelYr: r.vehicleYear,
@@ -174,15 +174,16 @@ const LocationTabComponent = Pipe({get: (root: ICoreCommVs) => root.policy.cmauS
         autoFocusNew={true}
         headerClass="tab-header"
         items={props.data}
-        headerFactory={loc => <LocationHeaderComponent model={loc}/>}
+        headerFactory={(loc, _, index)  => <LocationHeaderComponent model={loc} index={index}/>}
         bodyFactory={loc => <LocationBodyComponent key={loc.key} model={loc}/>}
     />
 )
 
-const LocationHeaderComponent = Pipe<ICoreCommCmauLocationVs>({errorwatch: { target: "peers", accept: () => "error"}})(props =>
+const LocationHeaderComponent = Pipe<ICoreCommCmauLocationVs>({errorwatch: "peers"})(
+    (props: {model: ICoreCommCmauLocationVs, data?: ICoreCommCmauLocationVs, error?: string, index: number}) =>
     <div className="div-button">
         <label className="div-button-text">
-            <a style={{color: "#444"}}>{`Location #${props.data.p.locationList.indexOf(props.data) + 1}`}</a><br/>
+            <a style={{color: "#444"}}>{`Location #${props.index + 1}`}</a><br/>
             {`${props.data.city} ${props.data.state} ${props.data.zip}-${props.data.zipAddOn}`.replace(/-$/, '')}
             <ValidationLabel error={props.error}/>
         </label>
@@ -212,20 +213,16 @@ const CarTabComponent = Pipe({get: (loc: ICoreCommCmauLocationVs) => loc.cars})(
         autoFocusNew={true}
         headerClass="tab-header"
         items={props.data}
-        headerFactory={car => <CarHeaderComponent model={car}/>}
+        headerFactory={(car, _, index) => <CarHeaderComponent model={car} index={index}/>}
         bodyFactory={car => <CarBodyComponent key={car.key} model={car}/>}
     />
 )
-
-const CarHeaderComponent = Pipe<ICoreCommCmauCarVs>({
-    val: (_, model, context) => {
-
-    }
-    //errorwatch: { target: "peers", accept: () => "error"}
-})(props =>
+ 
+const CarHeaderComponent = Pipe<ICoreCommCmauCarVs>({errorwatch: "peers"})(
+    (props: {model: ICoreCommCmauCarVs, data?: ICoreCommCmauCarVs, error?: string, index: number}) =>
     <div className="div-button">
         <label className="div-button-text">
-            {`${props.data.p.state} - Vehicle #${props.data.p.cars.indexOf(props.data) + 1}`}<br/>{`${props.data.modelYr} ${props.data.make}`}
+            {`${props.data.p.state} - Vehicle #${props.index + 1}`}<br/>{`${props.data.modelYr} ${props.data.make}`}
             <ValidationLabel error={props.error}/>
         </label>
     </div>
@@ -238,7 +235,7 @@ const CarControls = Proxify((props: {model: ICoreCommCmauCarVs}) =>
             <input type="button" value="Clone Vehicle" onClick={() => (props.model.p.cars.push(props.model), focusVin = props.model.hasvin === 'Y')} style={{padding: "1px 10px", margin: "0px 5px"}}/>
         </div>
         <div style={{display: props.model.p.cars.length > 1 ? "inline-block" : "none", float: "right"}}>
-            <input type="button" value="Remove Vehicle" onClick={() => ProxyUtils.detach(props.model)} style={{padding: "1px 10px", margin: "0px 5px"}}/>
+            <input type="button" value="Remove Vehicle" onClick={() => ModelUtils.detach(props.model)} style={{padding: "1px 10px", margin: "0px 5px"}}/>
         </div>
     </div>
 )
@@ -284,7 +281,7 @@ namespace GenInfo {
     const VehicleTypeComponent = Pipe({get: (car: ICoreCommCmauCarVs) => ({value: car.vehicleType, items: typeMapItems}), val: info => required(info)})(
         props => <tr>
             <td>Vehicle Type<ValidationLabel error={props.error}/></td>
-            <td><Dropdown data={props.data} set={value => props.model.vehicleType = value} emptyOption={true}/></td>
+            <td><Dropdown data={props.data} set={value => props.model.vehicleType = value}/></td>
         </tr>
     )
     const VehicleModerYearComponent = Pipe({get: (car: ICoreCommCmauCarVs, context) => vehDetailsDisabled(car) || car.custom === "Y" ? 
@@ -295,7 +292,7 @@ namespace GenInfo {
     )(props => 
         <tr>
             <td><a href="javascript:showHelp('/cmau_help.html#year')" className="css-qmark"></a>Vehicle Year<ValidationLabel error={props.error}/></td>
-            <td>{typeof props.data === "object" ? <Dropdown data={props.data} set={value => props.model.modelYr = value} emptyOption={true}/> : 
+            <td>{typeof props.data === "object" ? <Dropdown data={props.data} set={value => props.model.modelYr = value}/> : 
             <Editbox set={value => props.model.modelYr = value} pattern={/\d{1,4}/} value={props.data} disabled={vehDetailsDisabled(props.model)} style={{width: 150, textTransform: "uppercase"}} spellCheck={false}/>
             }</td>
         </tr>
@@ -308,7 +305,7 @@ namespace GenInfo {
     })(props => 
         <tr>
             <td><a href="javascript:showHelp('/cmau_help.html#make')" className="css-qmark"></a>Vehicle Make<ValidationLabel error={props.error}/></td>
-            <td>{typeof props.data === "object" ? <Dropdown data={props.data} set={value => props.model.make = value} emptyOption={true}/> : 
+            <td>{typeof props.data === "object" ? <Dropdown data={props.data} set={value => props.model.make = value}/> : 
             <Editbox set={value => props.model.make = value} value={props.data} disabled={vehDetailsDisabled(props.model)} style={{width: 150, textTransform: "uppercase"}} spellCheck={false}/>
             }</td>
         </tr>
@@ -321,7 +318,7 @@ namespace GenInfo {
     })(props => 
         <tr>
             <td><a href="javascript:showHelp('/cmau_help.html#model')" className="css-qmark"></a>Vehicle Model<ValidationLabel error={props.error}/></td>
-            <td>{typeof props.data === "object" ? <Dropdown data={props.data} set={value => props.model.modelInfo = value} emptyOption={true}/> : 
+            <td>{typeof props.data === "object" ? <Dropdown data={props.data} set={value => props.model.modelInfo = value}/> : 
             <Editbox set={value => props.model.modelInfo = value} value={props.data} disabled={vehDetailsDisabled(props.model)} style={{width: 150, textTransform: "uppercase"}} spellCheck={false}/>
             }</td>
         </tr>
@@ -362,21 +359,21 @@ namespace Private {
         get: car => ({value: car.vehUseCd, items: VehicleUseItems}), set: (car, value: VehicleUse) => car.vehUseCd = value,
         label: "Usage",
         validate: true
-    })(props => <Dropdown {...props} emptyOption={true}/>)
+    })(props => <Dropdown {...props}/>)
 
     const OperatorExperienceComponent = MakeAtoAComponent({
         get: car => ({value: car.operExp, items: OperatorExperienceItems}), set: (car, value: OperatorExperience) => car.operExp = value,
         validate: true,
         label: "Operator Experience",
         labelStyle: {paddingLeft: 16}
-    })(props => <Dropdown {...props} emptyOption={true}/>)
+    })(props => <Dropdown {...props}/>)
 
     const OperatorUseComponent = MakeAtoAComponent({
         get: car => ({value: car.operUse, items: OperatorUseItems}), set: (car, value: OperatorUse) => car.operUse = value,
         validate: true,
         label: "Operator Use",
         labelStyle: {paddingLeft: 16}
-    })(props => <Dropdown {...props} emptyOption={true}/>)
+    })(props => <Dropdown {...props}/>)
     
     const PPNonBusSwitch = MakeSwitch(car => car.vehUseCd === VehicleUse.NonBusiness).to(OperatorExperienceComponent, OperatorUseComponent);
 
@@ -404,7 +401,7 @@ namespace Truck {
         get: car => ({value: car.vehicleClass, items: VehicleClassItems}), set: (car, value: VehicleClass) => car.vehicleClass = value,
         validate: true,
         label: "Vehicle Class"
-    })(props => <Dropdown {...props} emptyOption={true}/>)
+    })(props => <Dropdown {...props}/>)
 
     const TrailerSwitch = MakeSwitch(car => car.vehicleClass == VehicleClass.Trailer)
 
@@ -412,7 +409,7 @@ namespace Truck {
         get: car => ({value: car.trailerType, items: TrailerTypeItems}), set: (car, value: TrailerType) => car.trailerType = value,
         validate: true,
         label: "Trailer Type"
-    })(props => <Dropdown {...props} emptyOption={true}/>)
+    })(props => <Dropdown {...props}/>)
 
     const UseClass1Component = MakeAtoAComponent({
         get: car => ({value: car.useClassInd1, items: YesNoItems}), set: (car, value: string) => car.useClassInd1 = value,
@@ -430,7 +427,7 @@ namespace Truck {
         get: car => ({value: car.radiusClass, items: RadiusClassItems}), set: (car, value: RadiusClass) => car.radiusClass = value,
         validate: true,
         label: "Radius"
-    })(props => <Dropdown {...props} emptyOption={true}/>)
+    })(props => <Dropdown {...props}/>)
 
     const DumpingOptionComponent = MakeAtoAComponent({
         get: car => car.dumpingOpInd, set: (car, value: string) => car.dumpingOpInd = value,
@@ -442,7 +439,7 @@ namespace Truck {
         get: car => ({value: car.secondaryClass, items: SecondaryClassItems}), set: (car, value: SecondaryClass) => car.secondaryClass = value,
         validate: true,
         label: "Secondary Class"
-    })(props => <Dropdown {...props} emptyOption={true}/>)
+    })(props => <Dropdown {...props}/>)
 
     const SecondaryClassType = MakeAtoAComponent({
         get: (car, context) => ajaxFeed(context, car.secondaryClassType, {
@@ -455,7 +452,7 @@ namespace Truck {
         }), set: (car, value: SecondaryClassType) => car.secondaryClassType = value,
         validate: ajaxRequired,
         label: "Secondary Class Type"
-    })(props => <Dropdown {...props} emptyOption={true}/>)   
+    })(props => <Dropdown {...props}/>)   
 
     export const Sheet = Pipe<ICoreCommCmauCarVs>() (props => 
         <React.Fragment>
@@ -486,13 +483,13 @@ namespace Cart {
         get: car => ({value: car.golfType, items: GolfTypeItems}), set: (car, value: GolfType) => car.golfType = value,
         validate: true,
         label: "Type"
-    })(props => <Dropdown {...props} emptyOption={true}/>)
+    })(props => <Dropdown {...props}/>)
 
     const UseComponent = MakeAtoAComponent({
         get: car => ({value: car.golfUse, items: GolfUseItems}), set: (car, value: GolfUse) => car.golfUse = value,
         validate: true,
         label: "Use"
-    })(props => <Dropdown {...props} emptyOption={true}/>)
+    })(props => <Dropdown {...props}/>)
 
     const SubjectToLawComponent = MakeAtoAComponent({
         get: car => car.golfVhsub, set: (car, value: string) => car.golfVhsub = value,
@@ -522,13 +519,13 @@ namespace Mobile {
         get: car => ({value: car.mobileHomeType, items: MobileHomeTypeItems}), set: (car, value: MobileHomeType) => car.mobileHomeType = value,
         validate: true,
         label: "Type"
-    })(props => <Dropdown {...props} emptyOption={true}/>)
+    })(props => <Dropdown {...props}/>)
 
     const LengthComponent = MakeAtoAComponent({
         get: car => ({value: car.motorHomeSize, items: MotorHomeSizeItems}), set: (car, value: MotorHomeSize) => car.motorHomeSize = value,
         validate: true,
         label: "Length"
-    })(props => <Dropdown {...props} emptyOption={true}/>) 
+    })(props => <Dropdown {...props}/>) 
     
     const LengthSwitch = MakeSwitch( car => car.mobileHomeType === MobileHomeType.MotorHome).to(LengthComponent)
 
@@ -568,7 +565,7 @@ namespace Coverages {
         }), set: (car, value: string) => car.coverages.comprehensiveDeductible = value,
         validate: ajaxRequired,
         label: "Comp. Ded"
-    })(props => <Dropdown {...props} emptyOption={true}/>)
+    })(props => <Dropdown {...props}/>)
     
     const CollDedComponent = MakeAtoAComponent({
         get: (car, context) => ajaxFeed(context, car.coverages.collisionDeductible, {
@@ -581,7 +578,7 @@ namespace Coverages {
         }), set: (car, value: string) => car.coverages.collisionDeductible = value,
         validate: ajaxRequired,
         label: "Coll. Ded"
-    })(props => <Dropdown {...props} emptyOption={true}/>)
+    })(props => <Dropdown {...props}/>)
 
     const ValuationComponent = MakeAtoAComponent({
         get: (car, context) => ajaxFeed(context, car.valuationMethod, {
@@ -594,7 +591,7 @@ namespace Coverages {
         }), set: (car, value: ValuationMethod) => car.valuationMethod = value,
         validate: ajaxRequired,
         label: "Valuation"
-    })(props => <Dropdown {...props} emptyOption={true}/>)
+    })(props => <Dropdown {...props}/>)
 
     const StatedAmoutComponent = MakeAtoAComponent({
         get: car => car.statedAmt, set: (car, value: string) => car.statedAmt = value,
@@ -617,7 +614,7 @@ namespace Coverages {
         validate: false,
         label: "Additional Personal Injury Protection",
         labelStyle: {paddingLeft: 16}
-    })(props => <Dropdown {...props} emptyOption={true}/>) 
+    })(props => <Dropdown {...props}/>) 
 
     // used to be ".coverages.pip.broadpipnum" now "car.coverages.pip.ks.broadpipnum" and is not mapped in model
     const BroadenedPIPComponent = MakeAtoAComponent({
@@ -641,7 +638,7 @@ namespace Coverages {
         validate: false,
         label: "Additional Broadened Personal Injury Protection",
         labelStyle: {paddingLeft: 16}
-    })(props => <Dropdown {...props} emptyOption={true}/>) 
+    })(props => <Dropdown {...props}/>) 
 
     // used to be ".coverages.pip.addedbroadpipnum" now "car.coverages.pip.ks.addedbroadpipnum" and is not mapped in model
     const NumNamedIndividualsSwitch = MakeSwitch(car => false).to(Addedbpipoptioncd)    
@@ -691,7 +688,7 @@ namespace Optional {
         get: car => ({ value: car.coverages.towlabor,  items: TowlaborItems }), set: (car, value: string) => car.coverages.towlabor = value,
         validate: true,
         label: "Towing and Labor"
-    })(props => <Dropdown {...props} emptyOption={true}/>)
+    })(props => <Dropdown {...props}/>)
 
     const TowingAndLaborSwitch = MakeSwitch(car => car.vehicleType == VehicleType.PrivatePassenger && !!car.coverages.comprehensiveDeductible.match(/\d|Full/)).to(TowingAndLaborComponent)
 

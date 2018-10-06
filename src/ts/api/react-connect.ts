@@ -47,11 +47,14 @@ class Proxified<M extends IArfSet, P extends {model: M}, S={}, SS=any, X={}> ext
     }
 }
 
-function bfsNodeSearch(field: Field<any>, model: any): PipeNode {
+function bfsNodeSearch<M extends IArfSet>(field: Field<M>, model: ModelProxy<M>): PipeNode {
     // TODO: elaborate...
-    let source: PipeNode = model.$listener.node;
-    while(!(source instanceof LogicNode)) {
+    let source = model.$listener.node as any as PipeNode;
+    while(source instanceof Connected) {
         source = source.source;
+    }
+    if(!(source instanceof LogicNode)) {
+        throw "Oops";
     }
     let scan = [source], key = model.key;
     while(scan.length) {
@@ -76,31 +79,33 @@ export const Proxify = <M extends IArfSet, P extends {model: M}, R extends React
   (clazz: ((new (props: P) => R) | ((props: P) => any))&X ) =>
     class extends Proxified<M, P, S, SS> { type = clazz } as any as (new (props: P) => R)&X
 
-class Connected<M extends IArfSet, P extends {model: M, context?: ContextModel<M>}, S> extends React.Component<{model: M}, {model: ModelProxy<M>&M}> implements PipeNode, Watcher {
+class Connected<M extends IArfSet, P extends {model: M, context?: ContextModel<M>}, S, D> extends React.Component<{model: M}, {model?: ModelProxy<M>&M, data?: D, error?: string}> implements PipeNode, Watcher {
+    static get field(): Field<any, any> { return null; }
+    static to(...other: (typeof Connected)[]) {
+        Array.isArray(other) && this.field.with(...other.map(item => item.field))
+        return this;
+    }
+
     source: PipeNode
     type: (new (props: P) => React.Component<P, S>) | ((props: P) => any)
-    static get field(): Field<any, any> { return null; }
-    //$model: JsonProxy<M>|IArfSet
+   // terminated = false
+    private constructed: boolean
+
     constructor(props: P) {
         super(props);
-        this.source = bfsNodeSearch((this.constructor as any).field, props.model);
+        this.source = bfsNodeSearch((this.constructor as any).field, props.model as any as ModelProxy<M>);
         if(!this.source) {
             throw "Logic didn't create node yet. Is this field included in form?";
         }
-        this.source.consumer.push(this);
-        // We could piggy-back on logic's proxy, but then some UI-only updates would also trigger logic to recompute. 
-        this.state = {model: (props.model as any).forWatcher(this)};
+        this.state = {}
+        this.source.subscribe(this);
+        (this.state as any).model = (props.model as any).forWatcher(this);
+        this.constructed = true;
     }
-    componentWillUnmount() {
-        this.source && this.source.consumer.splice(this.source.consumer.indexOf(this), 1);
-        this.state.model.$listener.undepend();
-    }
-
-    shouldComponentUpdate(nextProps: Readonly<P>): boolean {
-        // it will be updated later via "accept"
-        /*if(this.prev && this.prev.notifications.length ) {
-            return false;
-        }*/
+    shouldComponentUpdate(nextProps: Readonly<P>, nextState: Readonly<{data: D, error: string}>): boolean {
+        if(this.state.data !== nextState.data || this.state.error != nextState.error ) {
+            return true;
+        }
         let names = Object.getOwnPropertyNames(nextProps);
         if( names.length !== Object.getOwnPropertyNames(this.props).length ) {
             return true;
@@ -111,34 +116,99 @@ class Connected<M extends IArfSet, P extends {model: M, context?: ContextModel<M
         }
         return !shallowCompare(this.props, nextProps);
     }
-
     render() {
-         //this.source.lastData === undefined ? null :  ???
-         return   React.createElement(this.type, Object.assign({}, this.props, {
+         return this.state.data === undefined ? null : 
+            React.createElement(this.type, Object.assign({}, this.props, {
                 model: this.state.model,
-                data: this.source.lastData,
-                error: this.source.lastError,
+                data: this.state.data,
+                error: this.state.error,
                 context: (this.source as any).context
             }) as any);
-        //let Type = this.type as any; 
-        //return <Type {...this.props} model={this.state.model} data={this.source.lastData} error={this.source.lastError} context={(this.source as any).context}/>
     }
-
-    accept(data: any, error?: string) {
-        setImmediate(() => this.source.terminated || this.forceUpdate());
+    accept(data: any, error: string) {
+        if(this.constructed) {
+            // ???
+            //setImmediate(() => this.terminated || this.setState({data: data, error: error}));
+            this.setState({data: data, error: error});
+        } else {
+            this.state = Object.assign(this.state, {data: data, error: error});
+        }
     }
-
     notify() {
-        this.source.terminated || this.forceUpdate();
+        // ???
+        //this.terminated || 
+        this.forceUpdate();
     }
-
-    terminate() {
-        // ...
+    subscribe(consumer: PipeNode) {}
+    unsubscribe(consumer: PipeNode) {}
+    unsubscribeFrom(producer: PipeNode) {
+        producer.unsubscribe(this);
     }
+    componentWillUnmount() {
+        this.unsubscribeFrom(this.source);
+        this.state.model.$listener.undepend();
+        //this.terminated = true;
+    }
+}
 
-    static to(...other: (typeof Connected)[]) {
-        Array.isArray(other) && this.field.with(...other.map(item => item.field))
-        return this;
+class Errorwatch<M extends IArfSet, P extends {model: M, data?: any, context?: ContextModel<M>}, S> extends React.Component<P, {error?: string}> implements PipeNode {
+    state = {error: ""}
+    private nextState: {error: string} = {error: ""}
+    private pendingNextState: any = null;
+
+    subscriptions = new Set<PipeNode>()
+    erroring = new Set<PipeNode>()
+    type: (new (props: P) => React.Component<P, S>) | ((props: P) => any)
+    private constructed = false
+    private enabled = false
+    constructor(props: P) {
+        super(props);
+        const myNode = props.context.$node;
+        myNode.parent.children.forEach(
+            (map, key) => key === props.model.key && map.forEach(
+                node => node === myNode || (this.subscriptions.add(node), node.subscribe(this))
+            )
+        )
+        this.constructed = true;
+    }
+    render() {
+        return React.createElement(this.type, Object.assign({}, this.props, {
+            model: this.props.model,
+            data: this.props.data,
+            error: this.state.error,
+            context: this.props.context
+        }) as any);
+    }
+    accept(data: any, error: string, producer: LogicNode) {
+        if(this.enabled || (this.enabled = producer.lastNotifications.some(n => n.action === "validate"))) {
+            producer.children.forEach(map => map.forEach(
+                node => this.subscriptions.has(node) || (this.subscriptions.add(node), node.subscribe(this))
+            ));
+            error ? this.erroring.add(producer) : this.erroring.delete(producer);
+            this.scheduleUpdate();
+        }
+    }
+    scheduleUpdate() {
+        const cmpError = this.erroring.size ? "error" : "";
+        if(cmpError !== this.nextState.error) {
+            if(this.constructed) {
+                this.nextState = {error: cmpError};
+                this.pendingNextState || (this.pendingNextState = setImmediate(() => (this.pendingNextState = null, this.setState(this.nextState))));
+            } else {
+                this.state = this.nextState = {error: cmpError};
+            }
+        }
+    }
+    subscribe(consumer: PipeNode) { /*no-op*/ }
+    unsubscribe(consumer: PipeNode) { /*no-op*/ }
+    unsubscribeFrom(producer: PipeNode) { 
+        this.subscriptions.delete(producer);
+        this.erroring.delete(producer);
+        this.scheduleUpdate();
+    }
+    componentWillUnmount() {
+        this.subscriptions.forEach(node => node.unsubscribe(this));
+        this.pendingNextState && clearImmediate(this.pendingNextState);
     }
 }
 
@@ -148,19 +218,30 @@ type PipeClass<OP, S, SS, X, M, D> = (new (props: OP) => React.Component<OP, S, 
 }
 
 export const Pipe = <M extends IArfSet, D=M> (settings?: {
-    get?: (proxy: M, context: ContextModel<M>, events?: ListenerEvent[]) => D,
-    val?: (value: D, proxy?: M, context?: ContextModel<M>, events?: ListenerEvent[]) => void|string,
-    errorwatch?: boolean|{target: "peers"|string|LogicNode, accept: (prev: string, next: string) => string },
+    get?: (proxy: M, context: ContextModel<M>) => D, // |Promise<D>
+    val?: (value: D, proxy?: M, context?: ContextModel<M>) => void|string,
+    errorwatch?: "peers"//boolean|{target: "peers"|string|LogicNode, accept: (prev: string, next: string) => string },
     vstrategy?: ValidationStrategy
 }) => 
     function <IP extends {model: M, data?: D, error?: string, context?: ContextModel<M>}, S, SS, OP extends Omit<IP,"data"|"error"|"context">&{model: M}, X={}>
-       (clazz: (( new (props: IP) => React.Component<IP, S, SS>&X ) | ( (props: IP) => any )) ) 
+       (clazz: (( new (props: IP) => React.Component<IP, S, SS>&X ) | ( (props: IP) => any )) ) : PipeClass<OP, S, SS, X, M, D>
     {
-        let field = new Field(settings)
-        return class extends Connected<M, IP, S> {
-            type = clazz
+        let {errorwatch, ...rest} = settings||{errorwatch: false};
+        let field = new Field(rest)
+        return class extends Connected<M, IP, S, D> {
+            type = errorwatch ? ( class extends Errorwatch<M, IP, S> { type = clazz } as any ) : clazz
             static get field() { return field }
-        }  as any as PipeClass<OP, S, SS, X, M, D>
+        }  as any
+    }
+
+export const Connect = <M, D>(field: Field<M, D>) =>
+    function <IP extends {model: M, data?: D, error?: string, context?: ContextModel<M>}, S, SS, OP extends Omit<IP,"data"|"error"|"context">&{model: M}, X={}>
+    (clazz: (( new (props: IP) => React.Component<IP, S, SS>&X ) | ( (props: IP) => any )) ) : PipeClass<OP, S, SS, X, M, D>
+    {
+        return class extends Connected<M, IP, S, D> {
+            type =clazz
+            static get field() { return field }
+        }  as any
     }
 
 export function SwitchPipe<M extends IArfSet>(test: (model: M) => boolean)/*: PipeClass<{model: M, children: React.ReactNode}, {}, {}, {}, M, M>&{otherwise: () => PipeClass<{model: M, children: React.ReactNode}, {}, {}, {}, M, M>}*/ {

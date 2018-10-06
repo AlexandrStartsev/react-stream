@@ -1,14 +1,5 @@
 export module utils {
     let modifiedSince: any;
-
-    export function setDfeCustomStyle(css: string, formname?: string): void {
-        if(typeof document == 'object') {
-            var e = formname && document.getElementById(formname + '-custom-style') || document.head.appendChild(document.createElement('style'));
-            formname && e.setAttribute('id', formname + '-custom-style');
-            e.innerHTML = css;
-        }
-    }
-    
     export function reloadIfSourceChanged(interval: number): void {
         if(!modifiedSince) {
             modifiedSince = (new Date() as any).toGMTString();

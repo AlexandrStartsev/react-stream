@@ -1,4 +1,4 @@
-import {AsyncContextBase, ChoiceInfo, required} from "./dfe-stream"
+import {ContextModel, ChoiceInfo, required} from "./dfe-stream"
 
 interface CacheInterface<T> {
     get(key: string, compute: (key?: string) => T): T
@@ -230,7 +230,7 @@ export interface AjaxFeedParams<T> {
     mapper?: (record: any) => {value: T, description: string}
 }
 
-export function ajaxRequired<T, M>(value: AjaxChoiceInfo<T>, model: M, context: AsyncContextBase) {
+export function ajaxRequired<T, M>(value: AjaxChoiceInfo<T>, model: M, context: ContextModel) {
     let {status, errorMessage} = value;
     if(status === 'done') {
         if(value.items.length === 0) {
@@ -241,8 +241,8 @@ export function ajaxRequired<T, M>(value: AjaxChoiceInfo<T>, model: M, context: 
     return status === 'loading' ? context.lastError() : errorMessage || 'Ajax error';
 }
 
-export function ajaxFeed<T>(context: AsyncContextBase, value: T, args: AjaxFeedParams<T>): AjaxChoiceInfo<T> {
-    const onSuccess = function (data: any, ctx: AsyncContextBase){
+export function ajaxFeed<T>(context: ContextModel, value: T, args: AjaxFeedParams<T>): AjaxChoiceInfo<T> {
+    const onSuccess = function (data: any, ctx: ContextModel){
         try {
             let items: any[] = Array.isArray(data && data.result) ? data.result : [];
             ctx.result({ 
@@ -254,7 +254,7 @@ export function ajaxFeed<T>(context: AsyncContextBase, value: T, args: AjaxFeedP
             ctx.result({value : value, items: [], status: AjaxStatus.error, errorMessage: e.message});
         }
     }
-    const onReject = (xhr: XMLHttpRequest|Error, ctx: AsyncContextBase) => {
+    const onReject = (xhr: XMLHttpRequest|Error, ctx: ContextModel) => {
         ctx.result({ 
             value : value,
             items: [],
@@ -264,8 +264,9 @@ export function ajaxFeed<T>(context: AsyncContextBase, value: T, args: AjaxFeedP
     };
     let p = ajaxCache.get(args.query);
     if(!p.done) {
-        context.await(p.promise, onSuccess, onReject);
+        // await has to be after result or await flag will reset
         context.result({value : value, items: [{value: undefined, description: "Loading..."}], status: AjaxStatus.loading});
+        context.await(p.promise, onSuccess, onReject);
     } else {
         ( p.done==="success" ? onSuccess : onReject )(p.result, context);
     }
