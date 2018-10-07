@@ -9,7 +9,7 @@ export const LogicContextProvider = lcp as React.ComponentType<React.ProviderPro
 
 /**
  * 
- * LogicContextAdapter is a superclass for "highest order component"s. It wraps Connected and Proxified components. 
+ * LogicContextAdapter is used as a superclass for higher order components. It wraps Connected and Proxified components. 
  * 
  * Main function is to retrive instance LogicProcessor assigned to react subtree and current model and pass it to Connected components. 
  
@@ -21,11 +21,11 @@ export const LogicContextProvider = lcp as React.ComponentType<React.ProviderPro
  *  
  */
 
-class LogicContextAdapter<P extends {logic: LogicProcessor, model: IArfSet, field: Field<any, any>}, S, SS> extends React.Component<{model?: IArfSet}> {
+class LogicContextAdapter<M extends IArfSet, P extends {logic: LogicProcessor, model: M, field: Field<any, any>}, S, SS> extends React.Component<{model?: M}> {
     type: new (props: P) => React.Component<P, S, SS>
     field: Field<any, any>
 
-    shouldComponentUpdate(nextProps: Readonly<{model: IArfSet}>) {
+    shouldComponentUpdate(nextProps: Readonly<{model: M}>) {
         return this.props.model !== nextProps.model && (!this.props.model || !nextProps.model || this.props.model.key !== nextProps.model.key);
     }
     render() {
@@ -53,103 +53,103 @@ class LogicContextAdapter<P extends {logic: LogicProcessor, model: IArfSet, fiel
     }
 }
 
-function shallowCompare(obj1: any, obj2: any) {
-    if( obj1===obj2 ) return true;
-    if(typeof obj1 !== typeof obj2 || typeof obj1 !== 'object' || !obj1 !== !obj2) return false;
-    let names = Object.getOwnPropertyNames(obj1);
-    if( names.length != Object.getOwnPropertyNames(obj2).length ) return false;
-    return names.filter(n => obj1[n] !== obj2[n]).length === 0;
+function compareIgnoreModel<M, P extends {model: M & ModelProxy<M>}>(props: P, nextProps: P) {
+    let names = Object.getOwnPropertyNames(nextProps);
+    if( names.length !== Object.getOwnPropertyNames(props).length ) {
+        return true;
+    }
+    let pp = props as {[index: string]: any}, np = nextProps as {[index: string]: any};
+    return names.some(key => key !== "model" && pp[key] !== np[key]);    
 }
 
 /**
  * 
+ * Proxified component wraps components that interact with observable model. 
+ * 
+ * It obtains new subscription and passes observable with new subscription to wrapped component, 
+ * so all reads done by wrapped component account on wrapping instance (and not on parent component's instance)
+ * 
+ * Proxified also responsible to trigger wrapper component's re-rendering when notification on subscription received,
+ * and it is achieved by updating state.model  
  * 
  */
 
-class Proxified<M extends IArfSet, P extends {model: M}, S={}, SS=any, X={}> extends React.Component<P, S, SS> implements Subscriber {
+class Proxified<M extends IArfSet, P extends {model: M}, S={}, SS=any, X={}> extends React.Component<P & {model: ModelProxy<M>}, {model: ModelProxy<M>, subscription: Subscription}> implements Subscriber {
     type: ((new (props: P) => React.Component<P, S, SS>) | ((props: P) => any))&X
-    model: M
-    subscription: Subscription
-    constructor(props: P) {
+    
+    constructor(props: P & {model: ModelProxy<M>}) {
         super(props);
-        if(props.model instanceof ModelProxy) {
-            this.subscription = new Subscription(props.model, this)
-            this.model = props.model.withSubscription(this.subscription);
-        } else {
-            this.model = props.model;
-        }
+        let subscription = new Subscription(props.model, this);
+        this.state = {subscription: subscription, model: props.model.withSubscription(subscription)}
     }
-
+    static getDerivedStateFromProps<M>(nextProps: {model: M&ModelProxy<M>}, prevState: {model: M&ModelProxy<M>, subscription?: Subscription}) {
+        return prevState.model.key !== nextProps.model.key ? (prevState.subscription.clear(), { model: nextProps.model.withSubscription(prevState.subscription) }) : null
+    }
     componentWillUnmount() {
-        this.subscription && this.subscription.terminate();
+        this.state.subscription.clear();
     }
-
-    shouldComponentUpdate(nextProps: Readonly<P>, nextState: Readonly<S>): boolean {
-        let names = Object.getOwnPropertyNames(nextProps);
-        if( !shallowCompare(this.state, nextState) || names.length !== Object.getOwnPropertyNames(this.props).length ) {
-            return true;
-        }
-        let pp = this.props as {[index: string]: any}, np = nextProps as {[index: string]: any};
-        return this.model.key !== nextProps.model.key || names.some(key => key !== 'model' && key !== 'key' && pp[key] !== np[key]);
+    shouldComponentUpdate(nextProps: Readonly<P & {model: ModelProxy<M>}>, nextState: Readonly<{model: M & ModelProxy<M>, subscription: Subscription}>): boolean {
+        return nextState.model !== this.state.model || compareIgnoreModel(this.props, nextProps);
     }
     render() {
         const Type = this.type;
-        return <Type {...this.props} model={this.model}/>
+        return <Type {...this.props} model={this.state.model}/>
     }
-    notify(action?: ListenerEvent) {
-        this.forceUpdate();
+    notify() {
+        this.setState({model: this.props.model.withSubscription(this.state.subscription)})
     }
 }
 
 export const Proxify = <M extends IArfSet, P extends {model: M}, S={}, SS=any, X={}>
   (clazz: ((new (props: P) => React.Component<P, S, SS>) | ((props: P) => any))&X ) =>
-    class extends LogicContextAdapter<any, any, any> {
+    class extends LogicContextAdapter<any, any, any, any> {
         type = class extends Proxified<M, P, S, SS> {
             type = clazz
         }
     } as any as (new (props: Omit<P,"model">&{model?: M}) => React.Component<Omit<P,"model">&{model?: M}, S, SS>)&X
 
-class Connected<M extends IArfSet, P extends {model: M, context?: LogicNodeContext}, S, D> extends React.Component<{logic: LogicProcessor, model: M, field: Field<M, D>}, {model?: ModelProxy<M>&M, data?: D, error?: string}> implements PipeNode, Subscriber {
-    source: PipeNode
+/**
+ * 
+ * Connected component wraps components that consume results of logic nodes as well as interact with observable model.
+ * 
+ * It extends functionality of Proxified (TODO: set Proxified as superclass)
+ * 
+ * In addition, connected instance will find logic node and subscribe to it, 
+ * then re-render wrapped instance with new data/error props as they become available. 
+ * 
+ */
+
+class Connected<M extends IArfSet, P extends {model: M, data?: D, error?: string, context?: LogicNodeContext}, S, D> 
+            extends React.Component<{logic: LogicProcessor, model: M & ModelProxy<M>, field: Field<M, D>},
+                            {model: M & ModelProxy<M>, data?: D, error?: string, subscription: Subscription, source: LogicNode, self: any}> implements PipeNode, Subscriber {
+    
     type: (new (props: P) => React.Component<P, S>) | ((props: P) => any)
     
     private constructed: boolean
-    subscription: Subscription
 
-    constructor(props: {logic: LogicProcessor, model: M, field: Field<M, D>}) {
+    constructor(props: {logic: LogicProcessor, model: M & ModelProxy<M>, field: Field<M, D>}) {
         super(props);
-        this.source = props.logic.findNode(props.model.key, props.field);
-        if(!this.source) {
-            throw "Logic didn't create node yet. Is this field included in form?";
-        }
-        let px = props.model instanceof ModelProxy ? props.model : new ModelProxy<M>(props.model);
-        this.subscription = new Subscription(px, this)
-        this.state = {model: px.withSubscription(this.subscription) as any}
-        this.source.subscribe(this);
+        let subscription = new Subscription(props.model, this)
+        this.state = {source: props.logic.findNode(props.model.key, props.field), model: props.model.withSubscription(subscription), subscription: subscription, self: this}
+        this.state.source.subscribe(this);
         this.constructed = true;
     }
-    shouldComponentUpdate(nextProps: Readonly<{logic: LogicProcessor, model: M}>, nextState: Readonly<{data: D, error: string}>): boolean {
-        if(this.state.data !== nextState.data || this.state.error != nextState.error ) {
-            return true;
+    static getDerivedStateFromProps<M>(nextProps: {logic: LogicProcessor, model: M & ModelProxy<M>, field: Field<M, any>}, prevState: {model: M & ModelProxy<M>, subscription: Subscription, source: PipeNode, self: any}) {
+        if( prevState.model.key !== nextProps.model.key ) {
+            prevState.subscription.clear();
+            let nextState = { model: nextProps.model.withSubscription(prevState.subscription), source: nextProps.logic.findNode(nextProps.model.key, nextProps.field) }
+            prevState.source.unsubscribe(prevState.self);
+            nextState.source.subscribe(prevState.self)
+            return nextState;
         }
-        let names = Object.getOwnPropertyNames(nextProps);
-        if( names.length !== Object.getOwnPropertyNames(this.props).length ) {
-            return true;
-        }
-        if(nextProps.model instanceof ModelProxy) {
-            let pp = this.props as {[index: string]: any}, np = nextProps as {[index: string]: any};
-            return names.some(key => key !== "model" && key !== "key" && pp[key] !== np[key]);
-        }
-        return !shallowCompare(this.props, nextProps);
+        return null;
+    }
+    shouldComponentUpdate(nextProps: Readonly<{logic: LogicProcessor, model: M & ModelProxy<M>, field: Field<M, D>}>, nextState: Readonly<{model: M & ModelProxy<M>, data?: D, error?: string, subscription: Subscription, source: PipeNode, self: any}>): boolean {
+        return this.state.data !== nextState.data || this.state.error !== nextState.error || this.state.model !== nextState.model || compareIgnoreModel(this.props, nextProps);
     }
     render() {
-         return this.state.data === undefined ? null : 
-            React.createElement(this.type, Object.assign({}, this.props, {
-                model: this.state.model,
-                data: this.state.data,
-                error: this.state.error,
-                context: (this.source as any).context
-            }) as any);
+        const Type = this.type;
+        return this.state.data === undefined ? null : <Type {...this.props} model={this.state.model} data={this.state.data} error={this.state.error} context={this.state.source.context}/>
     }
     accept(data: any, error: string) {
         if(this.constructed) {
@@ -163,7 +163,7 @@ class Connected<M extends IArfSet, P extends {model: M, context?: LogicNodeConte
     notify() {
         // ???
         //this.terminated || 
-        this.forceUpdate();
+        this.setState({model: this.props.model.withSubscription(this.state.subscription)})
     }
     subscribe(consumer: PipeNode) {}
     unsubscribe(consumer: PipeNode) {}
@@ -171,12 +171,23 @@ class Connected<M extends IArfSet, P extends {model: M, context?: LogicNodeConte
         producer.unsubscribe(this);
     }
     componentWillUnmount() {
-        this.unsubscribeFrom(this.source);
-        this.subscription.terminate();
+        this.unsubscribeFrom(this.state.source);
+        this.state.subscription.clear();
         //this.terminated = true;
     }
 }
 
+/**
+ *
+ * Errorwatch component wraps components that want to receive syntetic error notification when other logic nodes are erroring
+ * It itself wrapped with Connected componet 
+ * 
+ * Errorwatch will subscribe to relevant logic nodes, continously updating subscription as necessary 
+ * 
+ * 
+ */
+
+// TODO: if props.model changes ...
 class Errorwatch<M extends IArfSet, P extends {model: M, data?: any, context?: LogicNodeContext}, S> extends React.Component<P, {error?: string}> implements PipeNode {
     state = {error: ""}
     private nextState: {error: string} = {error: ""}
@@ -200,12 +211,8 @@ class Errorwatch<M extends IArfSet, P extends {model: M, data?: any, context?: L
         this.constructed = true;
     }
     render() {
-        return React.createElement(this.type, Object.assign({}, this.props, {
-            model: this.props.model,
-            data: this.props.data,
-            error: this.state.error,
-            context: this.props.context
-        }) as any);
+        const Type = this.type;
+        return <Type {...this.props} model={this.props.model} data={this.props.data} error={this.state.error} context={this.props.context}/>
     }
     accept(data: any, error: string, producer: LogicNode) {
         if(this.enabled || (this.enabled = producer.lastNotifications.some(n => n.action === "validate"))) {
@@ -256,7 +263,7 @@ export const Pipe = <M extends IArfSet, D=M> (settings?: {
     {
         let {errorwatch, ...rest} = settings||{errorwatch: false};
         let field = new Field(rest)
-        return class extends LogicContextAdapter<any, any, any> {
+        return class extends LogicContextAdapter<M, any, any, any> {
             field = field
             type = class extends Connected<M, IP, S, D> {
                 type = errorwatch ? class extends Errorwatch<M, IP, S> {type = clazz} as any : clazz
@@ -269,7 +276,7 @@ export const Connect = <M, D>(field: Field<M, D>) =>
     function <IP extends {model: M, data?: D, error?: string, context?: LogicNodeContext}, S, SS, OP extends Omit<IP,"data"|"error"|"context">, X={}>
     (clazz: (( new (props: IP) => React.Component<IP, S, SS>&X ) | ( (props: IP) => any )) ) : PipeClass<OP&{model: M}, S, SS, X, M, D>
     {
-        return class extends LogicContextAdapter<any, any, any> {
+        return class extends LogicContextAdapter<M, any, any, any> {
             field = field
             type = class extends Connected<M, IP, S, D> {
                 type = clazz

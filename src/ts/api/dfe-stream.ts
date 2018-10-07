@@ -177,7 +177,7 @@ export class LogicNode implements PipeNode, Subscriber {
             this.context.destroy();
             this.consumers.forEach(c => c.unsubscribeFrom(this));
             this.children.forEach(map => map.forEach( node => node.terminate() ));
-            this.subscription.terminate();
+            this.subscription.clear();
         }
     }
     subscribe(consumer: PipeNode) {
