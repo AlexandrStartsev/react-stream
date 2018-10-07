@@ -63,7 +63,8 @@ class Service {
         try {
             const setup = await import("./forms/" + formName);
             const logic = await new LogicProcessor(ModelUtils.castAs(data, setup.modelImpl), setup.form, true).waitForPipeLine();
-            const ret = logic.nodes.map(n => n.context.lastError).filter(err => !!err);
+            const ret: string[] = [];
+            logic.forEachNode(node => node.context.lastError && ret.push(node.context.lastError));
             logic.destroy();
             return ret;
         } catch(e) {

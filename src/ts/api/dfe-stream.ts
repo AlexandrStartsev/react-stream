@@ -196,15 +196,23 @@ export class LogicNode implements PipeNode, Subscriber {
 }
 
 export class LogicProcessor<M={}> {
-    nodes: LogicNode[]
     scheduledWork: any
     rootModel: M
-    constructor(rootProxy: ModelProxy<M>, rootField: Field<M, any>, validate: boolean) {
-        let rootNode = new LogicNode(null, rootField, rootProxy, this);
-        rootNode.notify({ action: validate ? "validate" : "init" })
-        this.rootModel = rootNode.model as any;
-        this.nodes = [rootNode];
+    rootNode: LogicNode
+    private nodes: Map<number, Map<Field<any, any>, LogicNode>> = new Map()
+    constructor(rootProxy: ModelProxy<M>, rootField: Field<M, any>, validate?: boolean) {
+        this.addNode(this.rootNode = new LogicNode(null, rootField, rootProxy, this));
+        this.rootNode.notify({ action: validate ? "validate" : "init" })
+        this.rootModel = this.rootNode.model as any;
         this.processInterceptors();
+    }
+    private forEachImpl(cur: LogicNode, func: (node?: LogicNode, thisArg?: LogicProcessor) => any) {
+        func(cur, this);
+        cur.children.forEach(map => map.forEach(node => this.forEachImpl(node, func)));
+    }
+    forEachNode(func: (node?: LogicNode, thisArg?: LogicProcessor) => any, fast?: boolean) {
+        this.rootNode && fast ? this.nodes.forEach(map => map.forEach(node => func(node, this))) : this.forEachImpl(this.rootNode, func);
+        return this;
     }
     scheduleWork(node: LogicNode) {
         this.scheduledWork || (this.scheduledWork = setImmediate(this.processInterceptors.bind(this)));
@@ -212,40 +220,51 @@ export class LogicProcessor<M={}> {
     destroy() {
         this.scheduledWork && clearImmediate(this.scheduledWork);
         this.scheduledWork=null;
-        if(this.nodes.length) {
-            this.nodes[0].terminate();
-            this.nodes = []
+        if(this.rootNode) {
+            this.rootNode.terminate();
+            this.rootNode = null;
+            this.nodes = new Map();
         }
     }
     enforceValidation() {
-        this.nodes.filter(node => typeof node.field.val === "function").forEach(node => node.notify({action: "validate"}));
+        this.forEachNode(node => node.notify({action: "validate"}));
         return this.waitForPipeLine();
     }      
     waitForPipeLine() {
         return new Promise<LogicProcessor>((resolve, reject) => {
-            let pending:any[] = [];
             try {
-                this.processInterceptors();
-                this.scheduledWork || (pending = this.nodes.map(n => n.context.$await).filter(a => !!a)).length ? 
+                const pending = this.processInterceptors();
+                this.scheduledWork || pending.length > 0 ? 
                     Promise.all(pending).then(() => this.waitForPipeLine().then(resolve, reject), reject) : resolve(this);
+                /*let pending: Promise<any>[] = [], p: Promise<any>;
+                this.processInterceptors();
+                this.scheduledWork || this.forEach(node => (p = node.context.$await) && pending.push(p), true) && pending.length > 0 ? 
+                    Promise.all(pending).then(() => this.waitForPipeLine().then(resolve, reject), reject) : resolve(this);*/
             } catch(e) {
                 reject(e);
             }
         });
     }
+    addNode(node: LogicNode) {
+        let key = node.model.key, map: Map<Field<any, any>, LogicNode>;
+        (map = this.nodes.get(key)) || this.nodes.set(key, map = new Map());
+        map.set(node.field, node);
+    }
+    findNode<T, D>(modelKey: number, field: Field<T, D>) {
+        const map = this.nodes.get(modelKey);
+        return map ? map.get(field) : undefined;
+    }
     processInterceptors() {
+        let pending: Promise<any>[] = [], p: Promise<any>;
         if(this.scheduledWork) {
             this.scheduledWork = null;
-            for(let i = 0; i < this.nodes.length; i++) {
-                this.logic(this.nodes[i]);
-            }
-            let cur = 0;
-            this.nodes.forEach( node => node.terminated || (this.nodes[cur++] = node) );
-            this.nodes.splice(cur);
+            this.forEachNode(node => (this.logic(node), p = node.context.$await, p && pending.push(p)));
+            this.nodes.forEach((map, key) => {
+                map.forEach((node, field) => node.terminated && map.delete(field))
+                map.size || this.nodes.delete(key);
+            });
         }
-    }
-    addNode(node: LogicNode) {
-        this.nodes.push(node);
+        return pending;
     }
     logic(node: LogicNode) {
         if(node.notifications.length && !node.terminated) {
@@ -260,8 +279,5 @@ export class LogicProcessor<M={}> {
                 console.error(node.field + '\n' + e.message + '\n' + e.stack); 
             }
         }
-    }
-    findNodes<T, D>(field: Field<T, D>, modelKey: number|string) {
-        return this.nodes.filter( node => node.field === field && node.model.key === modelKey );
     }
 }

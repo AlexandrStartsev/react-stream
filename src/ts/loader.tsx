@@ -7,6 +7,7 @@ import "../../resources/es-polyfill";
 import { ModelUtils } from "./api/proxy";
 import { ajaxCache } from "./api/ajaxCache";
 import { reloadIfSourceChanged } from "./api/utils";
+import { LogicContextProvider } from "./api/react-connect";
 
 reloadIfSourceChanged(2000);
 
@@ -25,9 +26,10 @@ typeof cachePrimer === 'object' && Array.isArray(cachePrimer) && cachePrimer.for
 (async () => { 
     let formName = "quote.cmau.car";
     let { FormComponent, form, modelImpl } = await import("./forms/" + formName);
-    let jsonModel = require("../../test/100cars.json"), logic: LogicProcessor;
+    let jsonModel = require("../../test/100cars.json");
+    let logic = new LogicProcessor(ModelUtils.castAs(jsonModel, modelImpl), form);
 
-    ReactDOM.render(<FormComponent model = {(logic = new LogicProcessor(ModelUtils.castAs(jsonModel, modelImpl), form, false)).rootModel}/>, node);
+    ReactDOM.render(<LogicContextProvider value={{logic: logic}}><FormComponent/></LogicContextProvider>, node);
     validateButton.addEventListener('click', () => {
         $.ajax("/validate", {
             data: JSON.stringify({
@@ -39,6 +41,10 @@ typeof cachePrimer === 'object' && Array.isArray(cachePrimer) && cachePrimer.for
             method: "POST",
             success: (e) => console.log("server: ", e)
         });
-        logic.enforceValidation().then(l => console.log("client: ", l.nodes.filter(n => !!n.context.lastError).map(n => n.context.lastError))).catch(console.error)
+        logic.enforceValidation().then(function(logic) {
+            const errors: string [] = [];
+            logic.forEachNode(node => node.context.lastError && errors.push(node.context.lastError));
+            console.log("client: ", errors);
+        }, console.error);
     })
 })();

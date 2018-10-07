@@ -162,8 +162,8 @@ const MakeAtoAComponent = function(params: ApplyToAllConfing<string|ChoiceInfo<s
                     </td>
                 </tr>
             }</VehTypeConsumer>
-        ) as any as (new (props: {model: ICoreCommCmauCarVs}) => React.Component<{model: ICoreCommCmauCarVs}>)&{field: Field<ICoreCommCmauCarVs, any>, 
-            with: (...other: (typeof React.Component)[]) => (new (props: {model: ICoreCommCmauCarVs}) => React.Component<{model: ICoreCommCmauCarVs}>)}
+        ) as any as (new (props: {model: ICoreCommCmauCarVs}) => React.Component<{model?: ICoreCommCmauCarVs}>)&{field: Field<ICoreCommCmauCarVs, any>, 
+            with: (...other: (typeof React.Component)[]) => (new (props: {model: ICoreCommCmauCarVs}) => React.Component<{model?: ICoreCommCmauCarVs}>)}
     }
 }
 
@@ -176,7 +176,7 @@ const LocationTabComponent = Pipe({get: (root: ICoreCommVs) => root.policy.cmauS
         headerClass="tab-header"
         items={props.data}
         headerFactory={(loc, _, index)  => <LocationHeaderComponent model={loc} index={index}/>}
-        bodyFactory={loc => <LocationBodyComponent key={loc.key} model={loc}/>}
+        bodyFactory={(loc, index) => <LocationBodyComponent key={loc.key} model={loc} index={index}/>}
     />
 )
 
@@ -191,18 +191,16 @@ const LocationHeaderComponent = Pipe<ICoreCommCmauLocationVs>({errorwatch: "peer
     </div>
 )
 
-const LocationCount = Proxify((props: {model: ICoreCommCmauLocationVs}) => <div style={{display: "inline"}}>{"Location #" + (props.model.p.locationList.indexOf(props.model) + 1)}</div>)
-
 let focusVin = false;
-const LocationBodyComponent = Pipe<ICoreCommCmauLocationVs>()(props =>
+const LocationBodyComponent = Pipe<ICoreCommCmauLocationVs>()((props: {model: ICoreCommCmauLocationVs, index: number}) =>
     <React.Fragment>
         <div className="inline-section-header" style={{display: "inline-block", width: "100%", boxSizing: "border-box"}}>
-            <LocationCount model={props.data}/>
+            <div style={{display: "inline"}}>{"Location #" + (props.index + 1)}</div>
             <div style={{display: "inline-block", float: "right"}}>
-                <input style={{padding: "1px 10px"}} type="button" value="Add Vehicle" onClick={() => (props.data.cars.push(carDefaults), focusVin = true)}/>
+                <input style={{padding: "1px 10px"}} type="button" value="Add Vehicle" onClick={() => (props.model.cars.push(carDefaults), focusVin = true)}/>
             </div>
         </div>
-        <div><CarTabComponent model={props.data}/></div>
+        <div><CarTabComponent/></div>
     </React.Fragment>
 )
 
@@ -215,7 +213,7 @@ const CarTabComponent = Pipe({get: (loc: ICoreCommCmauLocationVs) => loc.cars})(
         headerClass="tab-header"
         items={props.data}
         headerFactory={(car, _, index) => <CarHeaderComponent model={car} index={index}/>}
-        bodyFactory={car => <CarBodyComponent key={car.key} model={car}/>}
+        bodyFactory={(car, index) => <CarBodyComponent key={car.key} model={car} index={index}/>}
     />
 )
  
@@ -229,7 +227,7 @@ const CarHeaderComponent = Pipe<ICoreCommCmauCarVs>({errorwatch: "peers"})(
     </div>
 )
 
-const CarCount = Proxify((props: {model: ICoreCommCmauCarVs}) => <div className="inline-section-header"><div>{"Vehicle #" + (props.model.p.cars.indexOf(props.model) + 1)}</div></div>)
+const CarSectionHeader = (props: {index: number}) => <div className="inline-section-header"><div>{"Vehicle #" + (props.index + 1)}</div></div>
 const CarControls = Proxify((props: {model: ICoreCommCmauCarVs}) => 
     <div className="inline-section-header" style={{display: "inline-block", width: "100%", boxSizing: "border-box"}}>
         <div style={{display: "inline-block", float: "right"}}>
@@ -240,27 +238,28 @@ const CarControls = Proxify((props: {model: ICoreCommCmauCarVs}) =>
         </div>
     </div>
 )
-const CarBodyComponent = Pipe<ICoreCommCmauCarVs>()(props =>
+const CarBodyComponent = Pipe<ICoreCommCmauCarVs>()((props: {model: ICoreCommCmauCarVs, index: number}) =>
     <React.Fragment>
-        <CarCount model={props.data}/>
-        <GenInfo.Sheet model={props.data}/>
-        <Private.Switch model={props.data}>
-            <Private.Sheet model={props.data}/>
+        <CarSectionHeader index={props.index}/>
+        <GenInfo.Sheet/>
+        <Private.Switch>
+            <Private.Sheet/>
         </Private.Switch>
-        <Truck.Switch model={props.data}>
-            <Truck.Sheet model={props.data}/>
+        <Truck.Switch>
+            <Truck.Sheet/>
         </Truck.Switch>
-        <Cart.Switch model={props.data}>
-            <Cart.Sheet model={props.data}/>
+        <Cart.Switch>
+            <Cart.Sheet/>
         </Cart.Switch>
-        <Mobile.Switch model={props.data}>
-            <Mobile.Sheet model={props.data}/>
+        <Mobile.Switch>
+            <Mobile.Sheet/>
         </Mobile.Switch>
-        <Coverages.Sheet model={props.data}/> 
-        <Optional.Sheet model={props.data}/>
-        <CarControls model={props.data}/>
+        <Coverages.Sheet/> 
+        <Optional.Sheet/>
+        <CarControls/>
     </React.Fragment>
 )
+
 namespace GenInfo {
     const DoYouHaveVinComponent = Proxify((props: {model: ICoreCommCmauCarVs}) => <tr><td>Do you have the VIN?</td><td><Radiolist data={{value: props.model.hasvin, items: YesNoItems}} set={value => props.model.hasvin = value}/></td></tr>)
     const OverrideComponent = Proxify((props: {model: ICoreCommCmauCarVs}) => props.model.hasvin !== "Y" || props.model.vinvalid == "Y" || !props.model.vinnumber ? null : <tr><td style={{paddingLeft: 16}}>Override VIN?</td><td><Radiolist data={{value: props.model.vinoverride, items: YesNoItems}} set={value => props.model.vinoverride = value}/></td></tr>)
@@ -341,15 +340,15 @@ namespace GenInfo {
         return <div className="dfe-inline-section">
             <table className="dfe-table tab-cols-5-5">
                 <tbody>
-                    <DoYouHaveVinComponent model={props.data}/>
-                    <VinNumberComponent model={props.data}/>
-                    <OverrideComponent model={props.data}/>
-                    <CustomInfoComponent model={props.data}/>
-                    <VehicleTypeComponent model={props.data}/>
-                    <VehicleModerYearComponent model={props.data}/>
-                    <VehicleMakeComponent model={props.data}/>
-                    <VehicleModelComponent model={props.data}/>
-                    <OriginalCostComponent model={props.data}/>
+                    <DoYouHaveVinComponent/>
+                    <VinNumberComponent/>
+                    <OverrideComponent/>
+                    <CustomInfoComponent/>
+                    <VehicleTypeComponent/>
+                    <VehicleModerYearComponent/>
+                    <VehicleMakeComponent/>
+                    <VehicleModelComponent/>
+                    <OriginalCostComponent/>
                 </tbody>
             </table>
         </div>
@@ -384,10 +383,10 @@ namespace Private {
             <div className="dfe-inline-section">
                 <table className="dfe-table col-3-centred tab-cols-2-5-3">
                     <tbody>
-                        <PPUsageComponent model={props.data}/>
-                        <PPNonBusSwitch model={props.data}>
-                            <OperatorExperienceComponent model={props.data}/>
-                            <OperatorUseComponent model={props.data}/>
+                        <PPUsageComponent/>
+                        <PPNonBusSwitch>
+                            <OperatorExperienceComponent/>
+                            <OperatorUseComponent/>
                         </PPNonBusSwitch>
                     </tbody>
                 </table>
@@ -461,16 +460,16 @@ namespace Truck {
             <div className="dfe-inline-section">
                 <table className="dfe-table col-va-middle col-3-centred tab-cols-3-4-3">
                     <tbody>
-                        <VehicleClassComponent model={props.data}/>
-                        <TrailerSwitch model={props.data}>
-                            <TrailerTypeComponent model={props.data}/>
+                        <VehicleClassComponent/>
+                        <TrailerSwitch>
+                            <TrailerTypeComponent/>
                         </TrailerSwitch>
-                        <UseClass1Component model={props.data}/>
-                        <UseClass2Component model={props.data}/>
-                        <RadiusClassComponent model={props.data}/>
-                        <DumpingOptionComponent model={props.data}/>
-                        <SecondaryClassComponent model={props.data}/>
-                        <SecondaryClassType model={props.data}/>
+                        <UseClass1Component/>
+                        <UseClass2Component/>
+                        <RadiusClassComponent/>
+                        <DumpingOptionComponent/>
+                        <SecondaryClassComponent/>
+                        <SecondaryClassType/>
                     </tbody>
                 </table>
             </div>
@@ -504,9 +503,9 @@ namespace Cart {
             <div className="dfe-inline-section">
                 <table className="dfe-table col-3-centred tab-cols-4-3-3">
                     <tbody>
-                        <TypeComponent model={props.data}/>
-                        <UseComponent model={props.data}/>
-                        <SubjectToLawComponent model={props.data}/>
+                        <TypeComponent/>
+                        <UseComponent/>
+                        <SubjectToLawComponent/>
                     </tbody>
                 </table>
             </div>
@@ -536,9 +535,9 @@ namespace Mobile {
             <div className="dfe-inline-section">
                 <table className="dfe-table col-3-centred tab-cols-2-5-3">
                     <tbody>
-                        <TypeComponent model={props.data}/>
-                        <LengthSwitch model={props.data}>
-                            <LengthComponent model={props.data}/>
+                        <TypeComponent/>
+                        <LengthSwitch>
+                            <LengthComponent/>
                         </LengthSwitch>
                     </tbody>
                 </table>
@@ -656,24 +655,24 @@ namespace Coverages {
             <div className="dfe-inline-section">
                 <table className="dfe-table col-3-centred tab-cols-4-3-3">
                     <tbody>
-                        <PhysicalDmgOnlyComponent model={props.data}/>
-                        <CompDedComponent model={props.data}/>
-                        <CollDedComponent model={props.data}/>
-                        <ValuationSwitch model={props.data}>
-                            <ValuationComponent model={props.data}/>
-                            <StatedAmoutSwitch model={props.data}>
-                                <StatedAmoutComponent model={props.data}/>
+                        <PhysicalDmgOnlyComponent/>
+                        <CompDedComponent/>
+                        <CollDedComponent/>
+                        <ValuationSwitch>
+                            <ValuationComponent/>
+                            <StatedAmoutSwitch>
+                                <StatedAmoutComponent/>
                             </StatedAmoutSwitch>                            
                         </ValuationSwitch>
-                        <PhysDmgSwitch model={props.data}>
-                            <PipComponent model={props.data}/>
-                            <PipIncludedSwitch model={props.data}>
-                                <AddlPipComponent model={props.data}/>
-                                <BroadenedPIPComponent model={props.data}/>
-                                <BroadenedPIPSwitch model={props.data}>
-                                    <NumNamedIndividuals model={props.data}/>
-                                    <NumNamedIndividualsSwitch model={props.data}>
-                                        <Addedbpipoptioncd model={props.data}/>
+                        <PhysDmgSwitch>
+                            <PipComponent/>
+                            <PipIncludedSwitch>
+                                <AddlPipComponent/>
+                                <BroadenedPIPComponent/>
+                                <BroadenedPIPSwitch>
+                                    <NumNamedIndividuals/>
+                                    <NumNamedIndividualsSwitch>
+                                        <Addedbpipoptioncd/>
                                     </NumNamedIndividualsSwitch>
                                 </BroadenedPIPSwitch>
                             </PipIncludedSwitch>
@@ -741,19 +740,19 @@ namespace Optional {
             <div className="dfe-inline-section">
                 <table className="dfe-table col-3-centred tab-cols-4-3-3">
                     <tbody>
-                        <TowingAndLaborSwitch model={props.data}>
-                            <TowingAndLaborComponent model={props.data}/>
+                        <TowingAndLaborSwitch>
+                            <TowingAndLaborComponent/>
                         </TowingAndLaborSwitch>
-                        <LossPayeeComponent model={props.data}/>
-                        <KSSpecificSwitch model={props.data}>
-                            <KSSpecificOpt1 model={props.data}/>
-                            <KSSpecificOpt2 model={props.data}/>
+                        <LossPayeeComponent/>
+                        <KSSpecificSwitch>
+                            <KSSpecificOpt1/>
+                            <KSSpecificOpt2/>
                         </KSSpecificSwitch>
-                        <EmployeeAsLessorComponent model={props.data}/>
-                        <NonKSSpecificSwitch model={props.data}>
-                            <AddlNamedInsuredComponent model={props.data}/>
-                            <AddlNamedInsuredSwitch model={props.data}>
-                                <AddlNamedInsuredNameComponent model={props.data}/>
+                        <EmployeeAsLessorComponent/>
+                        <NonKSSpecificSwitch>
+                            <AddlNamedInsuredComponent/>
+                            <AddlNamedInsuredSwitch>
+                                <AddlNamedInsuredNameComponent/>
                             </AddlNamedInsuredSwitch>
                         </NonKSSpecificSwitch>
                     </tbody>
