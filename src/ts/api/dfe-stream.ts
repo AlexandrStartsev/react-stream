@@ -5,24 +5,20 @@ export type Pick<T, K extends keyof T> = {[P in K]: T[P]}
 export type Omit<T, K extends keyof T> = Pick<T, Diff<keyof T, K>>;
 
 
-export enum ValidationStrategy {
-    None,
-    Always,
-    Followup,
-    Notified,
-    Validate
-}
+export type ValidationStrategy = "always"|"notified"|"validate"
 
 function doValidation(events: ListenerEvent[], vstrategy: ValidationStrategy) {
-    vstrategy = vstrategy === undefined ? ValidationStrategy.Validate : vstrategy;
-    if(vstrategy === undefined || vstrategy === ValidationStrategy.Validate ){
-        return events.some(e => 'validate' === e.action)
+    vstrategy = vstrategy === undefined ? "validate" : vstrategy;
+    if(vstrategy === undefined || vstrategy === "validate" ){
+        return events.some(e => "validate" === e.action)
     }
-    return vstrategy === ValidationStrategy.Always || vstrategy === ValidationStrategy.Notified && events[0].action != 'init'
+    return vstrategy === "always" || vstrategy === "notified" && events[0].action != "init"
 }
 
 export class LogicNodeContext {
     node: LogicNode
+    lastData: any
+    lastError: any
     $await: Promise<any>
 
     constructor(node: LogicNode) {
@@ -32,26 +28,30 @@ export class LogicNodeContext {
     get unbound() {
         return this.node.model.withSubscription();
     }
-    // TODO: all this should be moved to logic node. 
     result(data: any, error?: string) {
         let node = this.node;
         if(data !== undefined) {
             this.$await = null;
             if(error === undefined) {
-                let {lastNotifications, field, lastError} = node;
-                let validationResult = '';
-                try {
-                    validationResult = (lastError || doValidation(lastNotifications, field.vstrategy)) && field.val && field.val(data, node.model, this) || '';
-                } catch(e) {
-                    validationResult = e.message || 'exception';
+                let {lastNotifications, field} = node, validationResult: any;
+                if(field.val) {
+                    try {
+                        validationResult = (this.lastError || doValidation(lastNotifications, field.vstrategy)) && field.val(data, node.model, this);
+                    } catch(e) {
+                        validationResult = e.message || "Exception";
+                    }
+                    this.lastError = typeof validationResult === "string" ? validationResult : "";
+                } else {
+                    this.lastError = "";
                 }
-                error = typeof validationResult === 'string' ? validationResult : '';
+            } else {
+                this.lastError = error;
             }
-            node.accept(data, error, null);
+            node.accept(this.lastData = data, this.lastError, null);
         } else {
             if(error !== undefined) {
                 this.$await = null;
-                node.accept(node.lastData, error, null);
+                node.accept(this.lastData, this.lastError = error, null);
             }
         }
     }
@@ -64,18 +64,14 @@ export class LogicNodeContext {
     }
     await<T>(promise: Promise<T>, onSuccess?: (data: T, context: this) => T, onReject?: (reason: any, context: this) => void): void {
         this.$await = promise.then(
-            v => onSuccess ? onSuccess(v, this) : this.result(v),
-            v => onReject ? onReject(v, this) : this.result(undefined, v)
+            v => this.$await && (onSuccess ? onSuccess(v, this) : this.result(v)),
+            v => this.$await && (onReject ? onReject(v, this) : this.result(undefined, v))
         );
     }
     awaitAndClearFlag(promise: Promise<any>) {
         this.$await = promise.then(() => this.$await = null, () => this.$await = null);
     }
-    lastError() {
-        return this.node.lastError;
-    }
 }
-
 
 interface FieldProps<P, C> {
     get?: (proxy: P, context: LogicNodeContext) => C|Promise<C>
@@ -83,19 +79,19 @@ interface FieldProps<P, C> {
     vstrategy?: ValidationStrategy
 }
 
-type ArrayItem<A> = A extends Array<infer I> ? I : never
-export class Field<P extends IArfSet, D=P> {
-    get: (proxy: P, context: LogicNodeContext) => D|Promise<D>
-    val?: (value: any, proxy: IArfSet, context: LogicNodeContext) => void|string
+type ArrayItem<A> = A extends Array<infer I> ? I : A
+export class Field<P extends IArfSet, C=P> {
+    get: (proxy: P, context: LogicNodeContext) => C|Promise<C>
+    val?: (value: C, proxy: IArfSet, context: LogicNodeContext) => void|string
     vstrategy: ValidationStrategy
 
-    children: Field<ArrayItem<D>, any>[] = []
-    constructor(props: FieldProps<P, D>) {
+    children: Field<ArrayItem<C>, any>[] = []
+    constructor(props: FieldProps<P, C>) {
         this.children = [];
         this.get = (model: P) => model as any;
         Object.assign( this, props );
     }
-    with(...args: Field<ArrayItem<D>, any>[]): this {
+    with(...args: Field<ArrayItem<C>, any>[]): this {
         this.children = args.reduce((out, cur) => out.concat(cur), []).filter(o => o instanceof Field);
         return this;
     }
@@ -110,8 +106,6 @@ export interface PipeNode {
 
 export class LogicNode implements PipeNode, Subscriber {
     parent: LogicNode
-    lastData: any
-    lastError: any   
     field: Field<any, any>
     terminated: boolean
     //source: PipeNode TODO: generic chain instead of "children" map ?
@@ -169,15 +163,11 @@ export class LogicNode implements PipeNode, Subscriber {
             if(data !== undefined) {
                 // todo: evaliate lastData vs data and maybe skip rendering/child reconciliation 
                 if(childrenFields.length) {
-                    let arr = data && typeof data === 'object' ? ( Array.isArray(data) ? data : [data] ) : []
+                    let arr = data && typeof data === "object" ? ( Array.isArray(data) ? data : [data] ) : []
                     this.reconcileChildren(arr, this.lastNotifications);
                 }
-                this.lastData = data;
-                this.lastError = error;
                 this.consumers.forEach(c => c.accept(data, error, this));
                 this.runtime.scheduleWork(this);
-            } else {
-                this.lastError = error;
             }
         }
     }
@@ -193,7 +183,7 @@ export class LogicNode implements PipeNode, Subscriber {
     subscribe(consumer: PipeNode) {
         if(!this.terminated && this.consumers.indexOf(consumer) == -1) {
             this.consumers.push(consumer);
-            this.lastData !== undefined && consumer.accept(this.lastData, this.lastError, this);
+            this.context.lastData !== undefined && consumer.accept(this.context.lastData, this.context.lastError, this);
         }
     }
     unsubscribe(consumer: PipeNode) {
@@ -204,39 +194,6 @@ export class LogicNode implements PipeNode, Subscriber {
         // no-op for now 
     }
 }
-
-//###############################################################################################################################
-
-export function testChoice(a: any, b: any): boolean {
-    return a == b || typeof a === 'object' && typeof b === 'object' && Object.keys(a).every(i => a[i] == b[i]);
-}
-
-export let arfDatePattern = /^(18|19|20)((\\d\\d(((0[1-9]|1[012])(0[1-9]|1[0-9]|2[0-8]))|((0[13578]|1[02])(29|30|31))|((0[4,6,9]|11)(29|30))))|(([02468][048]|[13579][26])0229))$/;
-
-export function required<T>(value: string|number|ChoiceInfo<T>, pattern?: RegExp|string, message?: string): string {
-    if( !value || value.toString().replace(/ /g, '') === '' ) {
-        return message || 'Required';
-    } else {
-        if( typeof value === 'object' && Array.isArray(value.items) ) {
-            let v = value.value;
-            if( !v || v.toString().replace(/ /g, '') === '' ) {
-                return message || 'Required';
-            }
-            return value.items.some( item => testChoice(v, item.value !== undefined ? item.value : item) ) ? '' : message || 'Required';
-        }
-        if( pattern === 'date' && !value.toString().match(arfDatePattern) || pattern instanceof RegExp && ! value.toString().match(pattern) ) {
-            return message || 'Invalid format';
-        }
-        return '';
-    }
-}
-
-export interface ValueDescription<T> { value: T, description: string }
-export interface ChoiceInfo<T> {
-    value: T,
-    items: ValueDescription<T>[],
-}
-//###############################################################################################################################
 
 export class LogicProcessor<M={}> {
     nodes: LogicNode[]
@@ -261,7 +218,7 @@ export class LogicProcessor<M={}> {
         }
     }
     enforceValidation() {
-        this.nodes.forEach(node => node.notify({action: 'validate'}));
+        this.nodes.filter(node => typeof node.field.val === "function").forEach(node => node.notify({action: "validate"}));
         return this.waitForPipeLine();
     }      
     waitForPipeLine() {

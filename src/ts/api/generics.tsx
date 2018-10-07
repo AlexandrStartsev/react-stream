@@ -1,5 +1,5 @@
 import * as React from "react";
-import { ChoiceInfo } from "./dfe-stream";
+import { ChoiceInfo } from "./utils";
 import { IArfSet } from "./proxy";
 
 export function stringChoiceMaker(v: string, e: string[]): ChoiceInfo<string> {

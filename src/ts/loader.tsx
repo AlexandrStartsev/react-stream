@@ -6,9 +6,9 @@ import "../../resources/es-polyfill";
 
 import { ModelUtils } from "./api/proxy";
 import { ajaxCache } from "./api/ajaxCache";
-import { utils } from "./api/utils";
+import { reloadIfSourceChanged } from "./api/utils";
 
-utils.reloadIfSourceChanged(2000);
+reloadIfSourceChanged(2000);
 
 const validateButton = document.body.appendChild(document.createElement("input"));
 validateButton.value = "Validate All";
@@ -39,6 +39,6 @@ typeof cachePrimer === 'object' && Array.isArray(cachePrimer) && cachePrimer.for
             method: "POST",
             success: (e) => console.log("server: ", e)
         });
-        logic.enforceValidation().then(l => console.log("client: ", l.nodes.filter(n => !!n.lastError).map(n => n.lastError))).catch(console.error)
+        logic.enforceValidation().then(l => console.log("client: ", l.nodes.filter(n => !!n.context.lastError).map(n => n.context.lastError))).catch(console.error)
     })
 })();

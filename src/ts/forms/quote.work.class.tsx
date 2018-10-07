@@ -4,8 +4,9 @@ import { ModelUtils } from "../api/proxy";
 import { CoreCommVsProxy } from "../gen/impl/com.arrow.model.def.corecomm";
 import { com } from "../gen/definitions";
 import { Editbox, Dropdown, EditboxMoney, Radiolist, stringChoiceMaker, ValidationLabel } from "../api/generics";
-import { ChoiceInfo, required, LogicNodeContext } from "../api/dfe-stream";
+import { LogicNodeContext } from "../api/dfe-stream";
 import { Pipe, Proxify, SwitchPipe } from "../api/react-connect";
+import { ChoiceInfo, required } from "../api/utils";
 
 import "../../../resources/dfe-style.css";
 import "./quote.work.class.css";

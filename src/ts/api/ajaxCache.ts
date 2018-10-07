@@ -1,4 +1,5 @@
-import {LogicNodeContext, ChoiceInfo, required} from "./dfe-stream"
+import {LogicNodeContext} from "./dfe-stream"
+import {ChoiceInfo, required} from "../api/utils"
 
 interface CacheInterface<T> {
     get(key: string, compute: (key?: string) => T): T

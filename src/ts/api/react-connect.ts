@@ -170,7 +170,9 @@ class Errorwatch<M extends IArfSet, P extends {model: M, data?: any, context?: L
         const myNode = props.context.node;
         myNode.parent.children.forEach(
             (map, key) => key === props.model.key && map.forEach(
-                node => node === myNode || (this.subscriptions.add(node), node.subscribe(this))
+                node => node === myNode || (this.subscriptions.add(node), node.subscribe(this),
+                    // ??? this is if logicprocessor won't send validate action to nodes without validating function - so we add it but this isn't greatest solution 
+                    node.field.val || (node.field.val = () => void 0))
             )
         )
         this.constructed = true;

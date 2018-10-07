@@ -4,8 +4,9 @@ import { ModelUtils, IArfSet } from "../api/proxy";
 import { CoreCommVsProxy } from "../gen/impl/com.arrow.model.def.corecomm";
 import { com } from "../gen/definitions";
 import { Editbox, Dropdown, EditboxMoney, Radiolist, ValidationLabel, enumChoiceMaker, TabComponent, Checkbox } from "../api/generics";
-import { Field, ChoiceInfo, required, LogicNodeContext, PipeNode, LogicNode, Pick, Omit } from "../api/dfe-stream";
+import { Field, LogicNodeContext, PipeNode, LogicNode, Pick, Omit } from "../api/dfe-stream";
 import { Pipe, Proxify, SwitchPipe } from "../api/react-connect";
+import { ChoiceInfo, required } from "../api/utils"
 
 import "../../../resources/dfe-style.css";
 import "./quote.cmau.car.css"
