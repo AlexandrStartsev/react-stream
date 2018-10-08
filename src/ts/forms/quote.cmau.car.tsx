@@ -5,7 +5,7 @@ import { CoreCommVsProxy } from "../gen/impl/com.arrow.model.def.corecomm";
 import { com } from "../gen/definitions";
 import { Editbox, Dropdown, EditboxMoney, Radiolist, ValidationLabel, enumChoiceMaker, TabComponent, Checkbox } from "../api/generics";
 import { Field, LogicNodeContext, PipeNode, LogicNode, Pick, Omit } from "../api/dfe-stream";
-import { Pipe, Proxify, SwitchPipe } from "../api/react-connect";
+import { Create, Proxify, SwitchPipe } from "../api/react-connect";
 import { ChoiceInfo, required } from "../api/utils"
 
 import "../../../resources/dfe-style.css";
@@ -103,7 +103,7 @@ const typeMap: { [index: string]: TypeMap } = {
 };
 const {Provider: VehTypeProvider, Consumer: VehTypeConsumer} = React.createContext({vehicleType: VehicleType.NULL});
 const typeMapItems = Object.keys(typeMap).map(k => ({value: k as VehicleType, description: typeMap[k].name}));
-const VehicleTypeSwitch = (type: VehicleType) => Pipe({get: (car: ICoreCommCmauCarVs) => car.vehicleType === type ? car : null })(
+const VehicleTypeSwitch = (type: VehicleType) => Create({get: (car: ICoreCommCmauCarVs) => car.vehicleType === type ? car : null })(
     (props: {model: ICoreCommCmauCarVs, children: React.ReactNode, data: ICoreCommCmauCarVs}) => props.data ? <VehTypeProvider value={{vehicleType: type}}>{props.children}</VehTypeProvider> : null
 )
 
@@ -145,7 +145,7 @@ const MakeAtoAComponent = function(params: ApplyToAllConfing<string|ChoiceInfo<s
         const store = (type: VehicleType, model: ICoreCommCmauCarVs, value: string|ChoiceInfo<string>) => 
             model.p.p.locationList.forEach(loc => loc.cars.forEach(to => type !== VehicleType.NULL && to.vehicleType !== type || params.set(to, typeof value === "string" ? value : value.value)));
         const val = typeof params.validate === "function" ? {val: params.validate} : params.validate ? {val: (s: string|ChoiceInfo<string>) => required(s)} : {}
-        return Pipe({get: params.get, ...val})(
+        return Create({get: params.get, ...val})(
             (props: IP&{error?: string, data?: string|ChoiceInfo<string>}) => 
             <VehTypeConsumer>{info =>
                 <tr>
@@ -162,12 +162,12 @@ const MakeAtoAComponent = function(params: ApplyToAllConfing<string|ChoiceInfo<s
                     </td>
                 </tr>
             }</VehTypeConsumer>
-        ) as any as (new (props: {model: ICoreCommCmauCarVs}) => React.Component<{model: ICoreCommCmauCarVs}>)&{field: Field<ICoreCommCmauCarVs, any>, 
-            with: (...other: (typeof React.Component)[]) => (new (props: {model: ICoreCommCmauCarVs}) => React.Component<{model: ICoreCommCmauCarVs}>)}
+        ) as any as (new (props: {model: ICoreCommCmauCarVs}) => React.Component<{model?: ICoreCommCmauCarVs}>)&{field: Field<ICoreCommCmauCarVs, any>, 
+            with: (...other: (typeof React.Component)[]) => (new (props: {model: ICoreCommCmauCarVs}) => React.Component<{model?: ICoreCommCmauCarVs}>)}
     }
 }
 
-const LocationTabComponent = Pipe({get: (root: ICoreCommVs) => root.policy.cmauSet.locationList})(props => 
+const LocationTabComponent = Create({get: (root: ICoreCommVs) => root.policy.cmauSet.locationList})(props => 
     <TabComponent 
         style={{width: 900}}
         activeTabClass="tab-item tab-item-active"
@@ -176,11 +176,11 @@ const LocationTabComponent = Pipe({get: (root: ICoreCommVs) => root.policy.cmauS
         headerClass="tab-header"
         items={props.data}
         headerFactory={(loc, _, index)  => <LocationHeaderComponent model={loc} index={index}/>}
-        bodyFactory={loc => <LocationBodyComponent key={loc.key} model={loc}/>}
+        bodyFactory={(loc, index) => <LocationBodyComponent key={loc.key} model={loc} index={index}/>}
     />
 )
 
-const LocationHeaderComponent = Pipe<ICoreCommCmauLocationVs>({errorwatch: "peers"})(
+const LocationHeaderComponent = Create<ICoreCommCmauLocationVs>({errorwatch: "peers"})(
     (props: {model: ICoreCommCmauLocationVs, data?: ICoreCommCmauLocationVs, error?: string, index: number}) =>
     <div className="div-button">
         <label className="div-button-text">
@@ -191,22 +191,20 @@ const LocationHeaderComponent = Pipe<ICoreCommCmauLocationVs>({errorwatch: "peer
     </div>
 )
 
-const LocationCount = Proxify((props: {model: ICoreCommCmauLocationVs}) => <div style={{display: "inline"}}>{"Location #" + (props.model.p.locationList.indexOf(props.model) + 1)}</div>)
-
 let focusVin = false;
-const LocationBodyComponent = Pipe<ICoreCommCmauLocationVs>()(props =>
+const LocationBodyComponent = Create<ICoreCommCmauLocationVs>()((props: {model: ICoreCommCmauLocationVs, index: number}) =>
     <React.Fragment>
         <div className="inline-section-header" style={{display: "inline-block", width: "100%", boxSizing: "border-box"}}>
-            <LocationCount model={props.data}/>
+            <div style={{display: "inline"}}>{"Location #" + (props.index + 1)}</div>
             <div style={{display: "inline-block", float: "right"}}>
-                <input style={{padding: "1px 10px"}} type="button" value="Add Vehicle" onClick={() => (props.data.cars.push(carDefaults), focusVin = true)}/>
+                <input style={{padding: "1px 10px"}} type="button" value="Add Vehicle" onClick={() => (props.model.cars.push(carDefaults), focusVin = true)}/>
             </div>
         </div>
-        <div><CarTabComponent model={props.data}/></div>
+        <div><CarTabComponent/></div>
     </React.Fragment>
 )
 
-const CarTabComponent = Pipe({get: (loc: ICoreCommCmauLocationVs) => loc.cars})(props => 
+const CarTabComponent = Create({get: (loc: ICoreCommCmauLocationVs) => loc.cars})(props => 
     <TabComponent 
         style={{width: "100%"}}
         activeTabClass="tab-item tab-item-active"
@@ -215,11 +213,11 @@ const CarTabComponent = Pipe({get: (loc: ICoreCommCmauLocationVs) => loc.cars})(
         headerClass="tab-header"
         items={props.data}
         headerFactory={(car, _, index) => <CarHeaderComponent model={car} index={index}/>}
-        bodyFactory={car => <CarBodyComponent key={car.key} model={car}/>}
+        bodyFactory={(car, index) => <CarBodyComponent key={car.key} model={car} index={index}/>}
     />
 )
  
-const CarHeaderComponent = Pipe<ICoreCommCmauCarVs>({errorwatch: "peers"})(
+const CarHeaderComponent = Create<ICoreCommCmauCarVs>({errorwatch: "peers"})(
     (props: {model: ICoreCommCmauCarVs, data?: ICoreCommCmauCarVs, error?: string, index: number}) =>
     <div className="div-button">
         <label className="div-button-text">
@@ -229,7 +227,7 @@ const CarHeaderComponent = Pipe<ICoreCommCmauCarVs>({errorwatch: "peers"})(
     </div>
 )
 
-const CarCount = Proxify((props: {model: ICoreCommCmauCarVs}) => <div className="inline-section-header"><div>{"Vehicle #" + (props.model.p.cars.indexOf(props.model) + 1)}</div></div>)
+const CarSectionHeader = (props: {index: number}) => <div className="inline-section-header"><div>{"Vehicle #" + (props.index + 1)}</div></div>
 const CarControls = Proxify((props: {model: ICoreCommCmauCarVs}) => 
     <div className="inline-section-header" style={{display: "inline-block", width: "100%", boxSizing: "border-box"}}>
         <div style={{display: "inline-block", float: "right"}}>
@@ -240,32 +238,33 @@ const CarControls = Proxify((props: {model: ICoreCommCmauCarVs}) =>
         </div>
     </div>
 )
-const CarBodyComponent = Pipe<ICoreCommCmauCarVs>()(props =>
+const CarBodyComponent = Create<ICoreCommCmauCarVs>()((props: {model: ICoreCommCmauCarVs, index: number}) =>
     <React.Fragment>
-        <CarCount model={props.data}/>
-        <GenInfo.Sheet model={props.data}/>
-        <Private.Switch model={props.data}>
-            <Private.Sheet model={props.data}/>
+        <CarSectionHeader index={props.index}/>
+        <GenInfo.Sheet/>
+        <Private.Switch>
+            <Private.Sheet/>
         </Private.Switch>
-        <Truck.Switch model={props.data}>
-            <Truck.Sheet model={props.data}/>
+        <Truck.Switch>
+            <Truck.Sheet/>
         </Truck.Switch>
-        <Cart.Switch model={props.data}>
-            <Cart.Sheet model={props.data}/>
+        <Cart.Switch>
+            <Cart.Sheet/>
         </Cart.Switch>
-        <Mobile.Switch model={props.data}>
-            <Mobile.Sheet model={props.data}/>
+        <Mobile.Switch>
+            <Mobile.Sheet/>
         </Mobile.Switch>
-        <Coverages.Sheet model={props.data}/> 
-        <Optional.Sheet model={props.data}/>
-        <CarControls model={props.data}/>
+        <Coverages.Sheet/> 
+        <Optional.Sheet/>
+        <CarControls/>
     </React.Fragment>
 )
+
 namespace GenInfo {
     const DoYouHaveVinComponent = Proxify((props: {model: ICoreCommCmauCarVs}) => <tr><td>Do you have the VIN?</td><td><Radiolist data={{value: props.model.hasvin, items: YesNoItems}} set={value => props.model.hasvin = value}/></td></tr>)
     const OverrideComponent = Proxify((props: {model: ICoreCommCmauCarVs}) => props.model.hasvin !== "Y" || props.model.vinvalid == "Y" || !props.model.vinnumber ? null : <tr><td style={{paddingLeft: 16}}>Override VIN?</td><td><Radiolist data={{value: props.model.vinoverride, items: YesNoItems}} set={value => props.model.vinoverride = value}/></td></tr>)
     const CustomInfoComponent = Proxify((props: {model: ICoreCommCmauCarVs}) => vehDetailsDisabled(props.model) ? null : <tr><td style={{paddingLeft: 16}}>Vehicle Year, Make and/or Model is not available in dropdown</td><td><Radiolist data={{value: props.model.custom, items: YesNoItems}} set={value => props.model.custom = value}/></td></tr>)
-    const VinNumberComponent = Pipe({get: (car: ICoreCommCmauCarVs) => ({ hasvin: car.hasvin, vin: car.vinnumber, valid: car.vinvalid, override: car.vinoverride }), val: info => info.hasvin === "N" || info.override === "Y" ? "" : required(info.vin) || required(info.vin, /[a-zA-Z0-9]{17}/, "Invalid VIN format") || (info.valid == "Y" ? "" : "Vin not found")})(
+    const VinNumberComponent = Create({get: (car: ICoreCommCmauCarVs) => ({ hasvin: car.hasvin, vin: car.vinnumber, valid: car.vinvalid, override: car.vinoverride }), val: info => info.hasvin === "N" || info.override === "Y" ? "" : required(info.vin) || required(info.vin, /[a-zA-Z0-9]{17}/, "Invalid VIN format") || (info.valid == "Y" ? "" : "Vin not found")})(
         props => <tr>
             <td>Vihicle Identification Number (VIN)<ValidationLabel error={props.error}/></td>
             <td><Editbox 
@@ -279,13 +278,13 @@ namespace GenInfo {
             />{props.data.valid === "Y" || !props.data.vin ? null : "vin not found"}</td>
         </tr>
     )
-    const VehicleTypeComponent = Pipe({get: (car: ICoreCommCmauCarVs) => ({value: car.vehicleType, items: typeMapItems}), val: info => required(info)})(
+    const VehicleTypeComponent = Create({get: (car: ICoreCommCmauCarVs) => ({value: car.vehicleType, items: typeMapItems}), val: info => required(info)})(
         props => <tr>
             <td>Vehicle Type<ValidationLabel error={props.error}/></td>
             <td><Dropdown data={props.data} set={value => props.model.vehicleType = value}/></td>
         </tr>
     )
-    const VehicleModerYearComponent = Pipe({get: (car: ICoreCommCmauCarVs, context) => vehDetailsDisabled(car) || car.custom === "Y" ? 
+    const VehicleModerYearComponent = Create({get: (car: ICoreCommCmauCarVs, context) => vehDetailsDisabled(car) || car.custom === "Y" ? 
         car.modelYr : ajaxFeed(context, car.modelYr, {
             query: { vehicleType: car.vehicleType, method: "CMAUVehicleScriptHelper", action: "getYearOptions"
         }, mapper: textValueMapper}),
@@ -298,7 +297,7 @@ namespace GenInfo {
             }</td>
         </tr>
     )
-    const VehicleMakeComponent = Pipe({get: (car: ICoreCommCmauCarVs, context) => vehDetailsDisabled(car) || car.custom === "Y" ? 
+    const VehicleMakeComponent = Create({get: (car: ICoreCommCmauCarVs, context) => vehDetailsDisabled(car) || car.custom === "Y" ? 
         car.make : ajaxFeed(context, car.make, {
             query: { vehicleType: car.vehicleType, vehicleYear: car.modelYr, method: "CMAUVehicleScriptHelper", action: "getMakeOptions"
         }, mapper: textValueMapper}),
@@ -311,7 +310,7 @@ namespace GenInfo {
             }</td>
         </tr>
     )
-    const VehicleModelComponent = Pipe({get: (car: ICoreCommCmauCarVs, context) => vehDetailsDisabled(car) || car.custom === "Y" ? 
+    const VehicleModelComponent = Create({get: (car: ICoreCommCmauCarVs, context) => vehDetailsDisabled(car) || car.custom === "Y" ? 
         car.modelInfo : ajaxFeed(context, car.modelInfo, {
             query: { vehicleType: car.vehicleType, vehicleYear: car.modelYr, vehicleMake: car.make, method: "CMAUVehicleScriptHelper", action: "getModelOptions"
         }, mapper: textValueMapper}),
@@ -324,7 +323,7 @@ namespace GenInfo {
             }</td>
         </tr>
     )
-    const OriginalCostComponent = Pipe({get: (car: ICoreCommCmauCarVs) => car.vehicleCostNew, val: simplyRequired})(
+    const OriginalCostComponent = Create({get: (car: ICoreCommCmauCarVs) => car.vehicleCostNew, val: simplyRequired})(
         props => <tr>
             <td>Original Cost New<ValidationLabel error={props.error}/></td>
             <td><EditboxMoney 
@@ -336,20 +335,20 @@ namespace GenInfo {
             /></td>
         </tr>
     )
-    export const Sheet = Pipe<ICoreCommCmauCarVs>({get: (car, context) => (car.hasvin === 'Y' && vehProcessVin(car, context), car)}) (props => {
+    export const Sheet = Create<ICoreCommCmauCarVs>({get: (car, context) => (car.hasvin === 'Y' && vehProcessVin(car, context), car)}) (props => {
         const car = props.data;
         return <div className="dfe-inline-section">
             <table className="dfe-table tab-cols-5-5">
                 <tbody>
-                    <DoYouHaveVinComponent model={props.data}/>
-                    <VinNumberComponent model={props.data}/>
-                    <OverrideComponent model={props.data}/>
-                    <CustomInfoComponent model={props.data}/>
-                    <VehicleTypeComponent model={props.data}/>
-                    <VehicleModerYearComponent model={props.data}/>
-                    <VehicleMakeComponent model={props.data}/>
-                    <VehicleModelComponent model={props.data}/>
-                    <OriginalCostComponent model={props.data}/>
+                    <DoYouHaveVinComponent/>
+                    <VinNumberComponent/>
+                    <OverrideComponent/>
+                    <CustomInfoComponent/>
+                    <VehicleTypeComponent/>
+                    <VehicleModerYearComponent/>
+                    <VehicleMakeComponent/>
+                    <VehicleModelComponent/>
+                    <OriginalCostComponent/>
                 </tbody>
             </table>
         </div>
@@ -378,16 +377,16 @@ namespace Private {
     
     const PPNonBusSwitch = MakeSwitch(car => car.vehUseCd === VehicleUse.NonBusiness).to(OperatorExperienceComponent, OperatorUseComponent);
 
-    export const Sheet = Pipe<ICoreCommCmauCarVs>() (props => 
+    export const Sheet = Create<ICoreCommCmauCarVs>() (props => 
         <React.Fragment>
             <div className="inline-section-header"><div>Private Passenger Auto</div></div>
             <div className="dfe-inline-section">
                 <table className="dfe-table col-3-centred tab-cols-2-5-3">
                     <tbody>
-                        <PPUsageComponent model={props.data}/>
-                        <PPNonBusSwitch model={props.data}>
-                            <OperatorExperienceComponent model={props.data}/>
-                            <OperatorUseComponent model={props.data}/>
+                        <PPUsageComponent/>
+                        <PPNonBusSwitch>
+                            <OperatorExperienceComponent/>
+                            <OperatorUseComponent/>
                         </PPNonBusSwitch>
                     </tbody>
                 </table>
@@ -455,22 +454,22 @@ namespace Truck {
         label: "Secondary Class Type"
     })(props => <Dropdown {...props}/>)   
 
-    export const Sheet = Pipe<ICoreCommCmauCarVs>() (props => 
+    export const Sheet = Create<ICoreCommCmauCarVs>() (props => 
         <React.Fragment>
             <div className="inline-section-header"><div>Trucks, Tractors and Trailers</div></div>
             <div className="dfe-inline-section">
                 <table className="dfe-table col-va-middle col-3-centred tab-cols-3-4-3">
                     <tbody>
-                        <VehicleClassComponent model={props.data}/>
-                        <TrailerSwitch model={props.data}>
-                            <TrailerTypeComponent model={props.data}/>
+                        <VehicleClassComponent/>
+                        <TrailerSwitch>
+                            <TrailerTypeComponent/>
                         </TrailerSwitch>
-                        <UseClass1Component model={props.data}/>
-                        <UseClass2Component model={props.data}/>
-                        <RadiusClassComponent model={props.data}/>
-                        <DumpingOptionComponent model={props.data}/>
-                        <SecondaryClassComponent model={props.data}/>
-                        <SecondaryClassType model={props.data}/>
+                        <UseClass1Component/>
+                        <UseClass2Component/>
+                        <RadiusClassComponent/>
+                        <DumpingOptionComponent/>
+                        <SecondaryClassComponent/>
+                        <SecondaryClassType/>
                     </tbody>
                 </table>
             </div>
@@ -498,15 +497,15 @@ namespace Cart {
         label: "Vehicle subject to compulsory, financial or other law"
     })(props => <Checkbox {...props}/>)    
 
-    export const Sheet = Pipe<ICoreCommCmauCarVs>() (props => 
+    export const Sheet = Create<ICoreCommCmauCarVs>() (props => 
         <React.Fragment>
             <div className="inline-section-header"><div>Golf Carts and Low Speed Vehicles</div></div>
             <div className="dfe-inline-section">
                 <table className="dfe-table col-3-centred tab-cols-4-3-3">
                     <tbody>
-                        <TypeComponent model={props.data}/>
-                        <UseComponent model={props.data}/>
-                        <SubjectToLawComponent model={props.data}/>
+                        <TypeComponent/>
+                        <UseComponent/>
+                        <SubjectToLawComponent/>
                     </tbody>
                 </table>
             </div>
@@ -530,15 +529,15 @@ namespace Mobile {
     
     const LengthSwitch = MakeSwitch( car => car.mobileHomeType === MobileHomeType.MotorHome).to(LengthComponent)
 
-    export const Sheet = Pipe<ICoreCommCmauCarVs>() (props => 
+    export const Sheet = Create<ICoreCommCmauCarVs>() (props => 
         <React.Fragment>
             <div className="inline-section-header"><div>Mobile Homes</div></div>
             <div className="dfe-inline-section">
                 <table className="dfe-table col-3-centred tab-cols-2-5-3">
                     <tbody>
-                        <TypeComponent model={props.data}/>
-                        <LengthSwitch model={props.data}>
-                            <LengthComponent model={props.data}/>
+                        <TypeComponent/>
+                        <LengthSwitch>
+                            <LengthComponent/>
                         </LengthSwitch>
                     </tbody>
                 </table>
@@ -650,30 +649,30 @@ namespace Coverages {
     const PipIncludedSwitch = MakeSwitch(car => car.coverages.pipCoverage.includeInd === "Y").to(AddlPipComponent, BroadenedPIPComponent, BroadenedPIPSwitch)
     const PhysDmgSwitch = MakeSwitch(car => car.physDmgInd !== "Y" && car.p.state === "KS").to(PipComponent, PipIncludedSwitch)
  
-    export const Sheet = Pipe<ICoreCommCmauCarVs>() (props => 
+    export const Sheet = Create<ICoreCommCmauCarVs>() (props => 
         <React.Fragment>
             <div className="inline-section-header"><div>Coverages</div></div>
             <div className="dfe-inline-section">
                 <table className="dfe-table col-3-centred tab-cols-4-3-3">
                     <tbody>
-                        <PhysicalDmgOnlyComponent model={props.data}/>
-                        <CompDedComponent model={props.data}/>
-                        <CollDedComponent model={props.data}/>
-                        <ValuationSwitch model={props.data}>
-                            <ValuationComponent model={props.data}/>
-                            <StatedAmoutSwitch model={props.data}>
-                                <StatedAmoutComponent model={props.data}/>
+                        <PhysicalDmgOnlyComponent/>
+                        <CompDedComponent/>
+                        <CollDedComponent/>
+                        <ValuationSwitch>
+                            <ValuationComponent/>
+                            <StatedAmoutSwitch>
+                                <StatedAmoutComponent/>
                             </StatedAmoutSwitch>                            
                         </ValuationSwitch>
-                        <PhysDmgSwitch model={props.data}>
-                            <PipComponent model={props.data}/>
-                            <PipIncludedSwitch model={props.data}>
-                                <AddlPipComponent model={props.data}/>
-                                <BroadenedPIPComponent model={props.data}/>
-                                <BroadenedPIPSwitch model={props.data}>
-                                    <NumNamedIndividuals model={props.data}/>
-                                    <NumNamedIndividualsSwitch model={props.data}>
-                                        <Addedbpipoptioncd model={props.data}/>
+                        <PhysDmgSwitch>
+                            <PipComponent/>
+                            <PipIncludedSwitch>
+                                <AddlPipComponent/>
+                                <BroadenedPIPComponent/>
+                                <BroadenedPIPSwitch>
+                                    <NumNamedIndividuals/>
+                                    <NumNamedIndividualsSwitch>
+                                        <Addedbpipoptioncd/>
                                     </NumNamedIndividualsSwitch>
                                 </BroadenedPIPSwitch>
                             </PipIncludedSwitch>
@@ -735,25 +734,25 @@ namespace Optional {
     const AddlNamedInsuredSwitch = MakeSwitch(car => car.lossPayee.namedInsuredInd === "Y").to(AddlNamedInsuredNameComponent);
     const NonKSSpecificSwitch = MakeSwitch(car => car.p.state !== "KS").to(AddlNamedInsuredComponent, AddlNamedInsuredSwitch);
 
-    export const Sheet = Pipe<ICoreCommCmauCarVs>() (props => 
+    export const Sheet = Create<ICoreCommCmauCarVs>() (props => 
         <React.Fragment>
             <div className="inline-section-header"><div>Optional Coverages</div></div>
             <div className="dfe-inline-section">
                 <table className="dfe-table col-3-centred tab-cols-4-3-3">
                     <tbody>
-                        <TowingAndLaborSwitch model={props.data}>
-                            <TowingAndLaborComponent model={props.data}/>
+                        <TowingAndLaborSwitch>
+                            <TowingAndLaborComponent/>
                         </TowingAndLaborSwitch>
-                        <LossPayeeComponent model={props.data}/>
-                        <KSSpecificSwitch model={props.data}>
-                            <KSSpecificOpt1 model={props.data}/>
-                            <KSSpecificOpt2 model={props.data}/>
+                        <LossPayeeComponent/>
+                        <KSSpecificSwitch>
+                            <KSSpecificOpt1/>
+                            <KSSpecificOpt2/>
                         </KSSpecificSwitch>
-                        <EmployeeAsLessorComponent model={props.data}/>
-                        <NonKSSpecificSwitch model={props.data}>
-                            <AddlNamedInsuredComponent model={props.data}/>
-                            <AddlNamedInsuredSwitch model={props.data}>
-                                <AddlNamedInsuredNameComponent model={props.data}/>
+                        <EmployeeAsLessorComponent/>
+                        <NonKSSpecificSwitch>
+                            <AddlNamedInsuredComponent/>
+                            <AddlNamedInsuredSwitch>
+                                <AddlNamedInsuredNameComponent/>
                             </AddlNamedInsuredSwitch>
                         </NonKSSpecificSwitch>
                     </tbody>

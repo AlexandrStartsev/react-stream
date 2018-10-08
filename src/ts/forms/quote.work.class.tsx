@@ -5,7 +5,7 @@ import { CoreCommVsProxy } from "../gen/impl/com.arrow.model.def.corecomm";
 import { com } from "../gen/definitions";
 import { Editbox, Dropdown, EditboxMoney, Radiolist, stringChoiceMaker, ValidationLabel } from "../api/generics";
 import { LogicNodeContext } from "../api/dfe-stream";
-import { Pipe, Proxify, SwitchPipe } from "../api/react-connect";
+import { Create, Proxify, SwitchPipe } from "../api/react-connect";
 import { ChoiceInfo, required } from "../api/utils";
 
 import "../../../resources/dfe-style.css";
@@ -51,7 +51,7 @@ const shouldDisablePayrollTextBox = (sg: ICoreCommWorkStopGapVs) => stopGapSelec
 
 const LocIndexField = Proxify((props:{model: ICoreCommWorkLocation}) => <td>{props.model.p.locations.indexOf(props.model)+1}</td>)
 
-const AddressComponent = Pipe({get: (loc: ICoreCommWorkLocation) => loc.address, val: (value, loc) => loc.noSpecificLocation == 'Y' ? '' : required(value)})(
+const AddressComponent = Create({get: (loc: ICoreCommWorkLocation) => loc.address, val: (value, loc) => loc.noSpecificLocation == 'Y' ? '' : required(value)})(
     props => <td>
         <Editbox 
             maxLength={50}
@@ -63,7 +63,7 @@ const AddressComponent = Pipe({get: (loc: ICoreCommWorkLocation) => loc.address,
     </td>
 )
 
-const CityComponent = Pipe({get: (loc: ICoreCommWorkLocation) => loc.city, val: (value, loc) => loc.noSpecificLocation == 'Y' ? '' : required(value)})(
+const CityComponent = Create({get: (loc: ICoreCommWorkLocation) => loc.city, val: (value, loc) => loc.noSpecificLocation == 'Y' ? '' : required(value)})(
     props => <td>
         <Editbox 
             style={{width: "calc(100% - 3px)", borderRadius: "1px", height: "18px"}}
@@ -75,7 +75,7 @@ const CityComponent = Pipe({get: (loc: ICoreCommWorkLocation) => loc.city, val: 
     </td>
 )
 
-const StateComponent = Pipe({get: (loc: ICoreCommWorkLocation) => stringChoiceMaker(loc.state, states), val: simplyRequired})(
+const StateComponent = Create({get: (loc: ICoreCommWorkLocation) => stringChoiceMaker(loc.state, states), val: simplyRequired})(
     (props: {model: ICoreCommWorkLocation, context: LogicNodeContext, data?: ChoiceInfo<string>, processNoSpecificLocationChange: (loc: ICoreCommWorkLocation, context: LogicNodeContext, newState: string, newNoSpecificLocation: string) => void, error?: string}) => <td>
         <Dropdown 
             data={props.data} 
@@ -85,7 +85,7 @@ const StateComponent = Pipe({get: (loc: ICoreCommWorkLocation) => stringChoiceMa
     </td>
 )
 
-const ZipComponent = Pipe({get: (loc: ICoreCommWorkLocation) => loc.zip, val: (zip, loc) => loc.noSpecificLocation === "Y" ? "" : !zip ? "Required" : zip.match(/^\d{5}$/) ? "" : "Zip code is < 5 digits"})(props =>
+const ZipComponent = Create({get: (loc: ICoreCommWorkLocation) => loc.zip, val: (zip, loc) => loc.noSpecificLocation === "Y" ? "" : !zip ? "Required" : zip.match(/^\d{5}$/) ? "" : "Zip code is < 5 digits"})(props =>
     <td>
         <Editbox 
             style={{width: "calc(100% - 3px)", borderRadius: "1px", height: "18px"}}
@@ -97,7 +97,7 @@ const ZipComponent = Pipe({get: (loc: ICoreCommWorkLocation) => loc.zip, val: (z
     </td>
 )
 
-const NoSpecificComponent = Pipe()((props: {model: ICoreCommWorkLocation, context: LogicNodeContext, processNoSpecificLocationChange: (loc: ICoreCommWorkLocation, context: LogicNodeContext, newState: string, newNoSpecificLocation: string) => void}) =>
+const NoSpecificComponent = Create()((props: {model: ICoreCommWorkLocation, context: LogicNodeContext, processNoSpecificLocationChange: (loc: ICoreCommWorkLocation, context: LogicNodeContext, newState: string, newNoSpecificLocation: string) => void}) =>
     <td style={props.model.state.match(/MO|AZ|IN|IA|KY|MT|TX/) ? {visibility: "hidden"} : {}} className="no-specific-field">
         <input type="checkbox" checked={props.model.noSpecificLocation === 'Y'} 
             onChange={event => props.processNoSpecificLocationChange(props.model, props.context, props.model.state, event.target.checked ? 'Y' : 'N')}/>
@@ -107,14 +107,14 @@ const NoSpecificComponent = Pipe()((props: {model: ICoreCommWorkLocation, contex
 
 const DeleteLoc = Proxify((props: {model: ICoreCommWorkLocation}) => <td>{props.model.p.locations.length>1 && <input type="button" onClick={() => ModelUtils.detach(props.model)} value="Delete"/>}</td>)
 
-const StopGapIncludedComponent = Pipe({ get: (sg: ICoreCommWorkStopGapVs) => ({value: sg.includeInd, items: [{value: 'Y', description: "Yes"}, { value: 'N', description: "No"}]}), val: simplyRequired})(props =>
+const StopGapIncludedComponent = Create({ get: (sg: ICoreCommWorkStopGapVs) => ({value: sg.includeInd, items: [{value: 'Y', description: "Yes"}, { value: 'N', description: "No"}]}), val: simplyRequired})(props =>
     <td>
         <Radiolist data={props.data} set={value => props.model.includeInd = value}/>
         <ValidationLabel error={props.error}/>
     </td>
 )
 
-const StopGapPayrollComponent = Pipe({ get: (sg: ICoreCommWorkStopGapVs) => sg.payroll, val: (value, sg) => !(shouldDisablePayrollTextBox(sg) || value) && "Required"})(props =>
+const StopGapPayrollComponent = Create({ get: (sg: ICoreCommWorkStopGapVs) => sg.payroll, val: (value, sg) => !(shouldDisablePayrollTextBox(sg) || value) && "Required"})(props =>
     <td>
         <EditboxMoney 
             value={props.data} 
@@ -129,7 +129,7 @@ const StopGapPayrollComponent = Pipe({ get: (sg: ICoreCommWorkStopGapVs) => sg.p
 
 const Envelope = SwitchPipe((clazz: ICoreCommWorkClass) => !!clazz.code.match(/^\d{3,4}$/));
 
-const ClassCodeComponent = Pipe({get: (clazz: ICoreCommWorkClass) => clazz.code, val: value => !value ? "Required" : value.match(/^\d{4}$/) ? "" : "Invalid format" })(props =>
+const ClassCodeComponent = Create({get: (clazz: ICoreCommWorkClass) => clazz.code, val: value => !value ? "Required" : value.match(/^\d{4}$/) ? "" : "Invalid format" })(props =>
     <td>
         <Editbox 
             value={props.data}
@@ -141,7 +141,7 @@ const ClassCodeComponent = Pipe({get: (clazz: ICoreCommWorkClass) => clazz.code,
     </td>
 )
 
-const FTEmployeeComponent = Pipe({get: (clazz: ICoreCommWorkClass) => clazz.fulltimeemployeeamt, val: (value, clazz) => clazz.ifAny === "Y" || clazz.p.p.p.commonSet.quoteType !== "NB" || value ? "" : "Required" })(props =>
+const FTEmployeeComponent = Create({get: (clazz: ICoreCommWorkClass) => clazz.fulltimeemployeeamt, val: (value, clazz) => clazz.ifAny === "Y" || clazz.p.p.p.commonSet.quoteType !== "NB" || value ? "" : "Required" })(props =>
     <td>
         <Editbox 
             value={props.data}
@@ -154,7 +154,7 @@ const FTEmployeeComponent = Pipe({get: (clazz: ICoreCommWorkClass) => clazz.full
     </td>
 )
 
-const PTEmployeeComponent = Pipe({get: (clazz: ICoreCommWorkClass) => clazz.parttimeemployeeamt, val: (value, clazz) => clazz.ifAny === "Y" || clazz.p.p.p.commonSet.quoteType !== "NB" || value ? "" : "Required" })(props =>
+const PTEmployeeComponent = Create({get: (clazz: ICoreCommWorkClass) => clazz.parttimeemployeeamt, val: (value, clazz) => clazz.ifAny === "Y" || clazz.p.p.p.commonSet.quoteType !== "NB" || value ? "" : "Required" })(props =>
     <td>
         <Editbox 
             value={props.data}
@@ -179,7 +179,7 @@ const SeasonalEmployeeComponent = Proxify((props: {model: ICoreCommWorkClass}) =
     </td>
 )
 
-const PayrollComponent = Pipe({get: (clazz: ICoreCommWorkClass) => clazz.payroll, val: (value, clazz) => clazz.ifAny === "Y" || value ? "" : "Required" })(props =>
+const PayrollComponent = Create({get: (clazz: ICoreCommWorkClass) => clazz.payroll, val: (value, clazz) => clazz.ifAny === "Y" || value ? "" : "Required" })(props =>
     <td>
         <EditboxMoney
             value={props.data}
@@ -203,7 +203,7 @@ const IfAnyComponent = Proxify((props: {model: ICoreCommWorkClass}) =>
     </td>
 )
 
-const SubcodeComponent = Pipe<ICoreCommWorkClass, AjaxChoiceInfo<string>>({
+const SubcodeComponent = Create<ICoreCommWorkClass, AjaxChoiceInfo<string>>({
     get: (clazz, context) => ajaxFeed(context, clazz.subcode, {
         query: {
             action: 'getSubcodes',
@@ -226,27 +226,27 @@ const SubcodeComponent = Pipe<ICoreCommWorkClass, AjaxChoiceInfo<string>>({
     </div>
 )
 
-const ClassRowComponent = Pipe({val: (clazz: ICoreCommWorkClass) => clazz.ifAny === "Y" && (clazz.fulltimeemployeeamt || clazz.parttimeemployeeamt || clazz.seasonalemployeeamt || clazz.payroll) ? "If Any is selected, you may not enter Employees or Payroll" : ""})(props => {
-    let clazz = props.data, all = props.data.p.classes;
-    return <Fragment>
+const ClassRowComponent = Create({val: (clazz: ICoreCommWorkClass) => clazz.ifAny === "Y" && (clazz.fulltimeemployeeamt || clazz.parttimeemployeeamt || clazz.seasonalemployeeamt || clazz.payroll) ? "If Any is selected, you may not enter Employees or Payroll" : ""})(
+    (props: {model: ICoreCommWorkClass, index: number, error: string, canDelete: boolean}) =>
+     <Fragment>
         <tr>
-            <td>{all.indexOf(clazz) + 1}</td>
-            <ClassCodeComponent model={clazz}/>
-            <FTEmployeeComponent model={clazz}/>
-            <PTEmployeeComponent model={clazz}/>
-            <SeasonalEmployeeComponent model={clazz}/>
-            <PayrollComponent model={clazz}/>
-            <IfAnyComponent model={clazz}/>
-            { all.length > 1 &&
+            <td>{props.index + 1}</td>
+            <ClassCodeComponent/>
+            <FTEmployeeComponent/>
+            <PTEmployeeComponent/>
+            <SeasonalEmployeeComponent/>
+            <PayrollComponent/>
+            <IfAnyComponent/>
+            { props.canDelete &&
                 <td style={{maxWidth: "50px"}}>
-                    <input type="button" onClick={() => ModelUtils.detach(clazz)} value="Delete" />
+                    <input type="button" onClick={() => ModelUtils.detach(props.model)} value="Delete" />
                 </td>
             }
         </tr>
         <tr>
             <td colSpan={8}>
-                <Envelope model={clazz}>
-                    <SubcodeComponent model={clazz}/>
+                <Envelope>
+                    <SubcodeComponent/>
                 </Envelope>
             </td>
         </tr>
@@ -256,9 +256,9 @@ const ClassRowComponent = Pipe({val: (clazz: ICoreCommWorkClass) => clazz.ifAny 
             </td>
         </tr>
     </Fragment>
-}).to(ClassCodeComponent, FTEmployeeComponent, PTEmployeeComponent, PayrollComponent, Envelope.to(SubcodeComponent))
+).to(ClassCodeComponent, FTEmployeeComponent, PTEmployeeComponent, PayrollComponent, Envelope.to(SubcodeComponent))
 
-const ClassContainerComponent = Pipe({get: (loc: ICoreCommWorkLocation) => loc.classes})(props => 
+const ClassContainerComponent = Create({get: (loc: ICoreCommWorkLocation) => loc.classes})(props => 
     <table className="class-codes" style={{width: "100%"}}>
         <thead>
             <tr>
@@ -279,15 +279,15 @@ const ClassContainerComponent = Pipe({get: (loc: ICoreCommWorkLocation) => loc.c
                 <th></th>
             </tr>
         </thead>
-        <tbody>{props.data.map(clazz => <ClassRowComponent key={clazz.key} model={clazz}/>)}</tbody>
+        <tbody>{props.data.map((clazz, index) => <ClassRowComponent key={clazz.key} model={clazz} index={index} canDelete={props.data.length > 1}/>)}</tbody>
     </table>
 ).to(ClassRowComponent)
 
-const NonMonopolisticSwitch = Pipe({get: (loc: ICoreCommWorkLocation) => isMonopolisticState(loc) ? null : loc })(props =>
+const NonMonopolisticSwitch = Create({get: (loc: ICoreCommWorkLocation) => isMonopolisticState(loc) ? null : loc })(props =>
     props.data ? <Fragment>
         <tr>
             <td colSpan={7}>
-                <ClassContainerComponent model={props.data}/>
+                <ClassContainerComponent/>
             </td>
         </tr>
         <tr>
@@ -298,7 +298,7 @@ const NonMonopolisticSwitch = Pipe({get: (loc: ICoreCommWorkLocation) => isMonop
     </Fragment> : null //  <input type="button" onClick={() => props.showAvailable(loc.p.effective, loc.state)} value="Available class code list"/>
 ).to(ClassContainerComponent)
 
-const MonopolisticSwitch = Pipe({get: (loc: ICoreCommWorkLocation) => isMonopolisticState(loc) ? loc.stopGap : null })(props => 
+const MonopolisticSwitch = Create({get: (loc: ICoreCommWorkLocation) => isMonopolisticState(loc) ? loc.stopGap : null })(props => 
     props.data ? <Fragment>
         <tr>
             <td colSpan={7}>
@@ -320,26 +320,23 @@ const MonopolisticSwitch = Pipe({get: (loc: ICoreCommWorkLocation) => isMonopoli
     </Fragment> : null
 ).to(StopGapIncludedComponent, StopGapPayrollComponent)
 
-const LocationRowComponent = Pipe()((props: {model: ICoreCommWorkLocation, processNoSpecificLocationChange: (loc: ICoreCommWorkLocation, context: LogicNodeContext, newState: string, newNoSpecificLocation: string) => void, showAvailable: (effectiveDt: string, state: string) => void}) => {
-    let loc = props.model;
-    return (
-        <Fragment>
-            <tr>
-                <LocIndexField model={loc}/>
-                <AddressComponent model={loc}/>
-                <CityComponent model={loc}/>
-                <StateComponent model={loc} processNoSpecificLocationChange={props.processNoSpecificLocationChange}/>
-                <ZipComponent model={loc}/>
-                <NoSpecificComponent model={loc} processNoSpecificLocationChange={props.processNoSpecificLocationChange}/>
-                <DeleteLoc model={loc}/>
-            </tr>
-            <NonMonopolisticSwitch model={loc}/>
-            <MonopolisticSwitch model={loc}/>
-        </Fragment>
-    )
-}).to(AddressComponent, CityComponent, StateComponent, ZipComponent, NoSpecificComponent, NonMonopolisticSwitch, MonopolisticSwitch)
+const LocationRowComponent = Create()((props: {model: ICoreCommWorkLocation, processNoSpecificLocationChange: (loc: ICoreCommWorkLocation, context: LogicNodeContext, newState: string, newNoSpecificLocation: string) => void, showAvailable: (effectiveDt: string, state: string) => void}) => 
+    <Fragment>
+        <tr>
+            <LocIndexField/>
+            <AddressComponent/>
+            <CityComponent/>
+            <StateComponent processNoSpecificLocationChange={props.processNoSpecificLocationChange}/>
+            <ZipComponent/>
+            <NoSpecificComponent processNoSpecificLocationChange={props.processNoSpecificLocationChange}/>
+            <DeleteLoc/>
+        </tr>
+        <NonMonopolisticSwitch/>
+        <MonopolisticSwitch/>
+    </Fragment>
+).to(AddressComponent, CityComponent, StateComponent, ZipComponent, NoSpecificComponent, NonMonopolisticSwitch, MonopolisticSwitch)
 
-const LocationContainerComponent = Pipe({
+const LocationContainerComponent = Create({
     get: (work: ICoreCommWork) => work.locations,
     val: function(locs) {
         if(locs.length === 0) return "at least one location is required"
@@ -377,7 +374,7 @@ const LocationContainerComponent = Pipe({
         </Fragment>
 ).to(LocationRowComponent)
 
-const QuoteWorkClassComponent = Pipe({get: (root: ICoreCommVs) => root.policy.workSet})(
+const QuoteWorkClassComponent = Create({get: (root: ICoreCommVs) => root.policy.workSet})(
     class extends React.Component<{model: ICoreCommVs, data?: ICoreCommWork}> {
         private locationDefaults: ICoreCommWorkLocation
         private locationDefaults2: ICoreCommWorkLocation[]

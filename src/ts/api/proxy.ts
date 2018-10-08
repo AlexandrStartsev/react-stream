@@ -63,7 +63,7 @@ export type ListenerAction = "add"|"modify"|"delete"|"remove"|"validate"|"init"|
 export interface ListenerEvent { key? : number|string, element? : string, action?: ListenerAction }
 
 export interface Subscriber {
-    subscription: Subscription
+    //subscription: Subscription
     notify(action?: ListenerEvent): void;
 }
 
@@ -94,7 +94,7 @@ export class Subscription {
         this.subscriber = subscriber;
         this.dependencies = [];
     }
-    terminate() {
+    clear() {
         this.dependencies.forEach(dpKey => {
             let ctlSet = this.dpMap.get(dpKey);
             if(ctlSet) {
@@ -102,6 +102,7 @@ export class Subscription {
                 ctlSet.size || this.dpMap.delete(dpKey);
             }
         })
+        this.dependencies = [];
     }
     depend(key: number|string, element: string) {
         if(this.subscriber) {
