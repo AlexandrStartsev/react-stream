@@ -44,7 +44,7 @@ class LogicContextAdapter<M extends IArfSet, P, S, SS> extends React.Component<{
     
     static get field(): Field<any, any> { return null; }
     static to(...other: (typeof LogicContextAdapter)[]) {
-        Array.isArray(other) && this.field.with(...other.map(item => item.field))
+        Array.isArray(other) && this.field.with.apply(this.field, other.map(item => item.field))
         return this;
     }
 }
@@ -249,25 +249,6 @@ type BoundComponent<OP extends {model: M}, S, SS, X, M, D> = (new (props: OP) =>
     to: (...other: (typeof React.Component)[]) => BoundComponent<OP, S, SS, X, M, D>
 }
 
-export const Create = <M extends IArfSet, D=M> (settings?: {
-    get?: (proxy: M, context: LogicNodeContext) => D, // |Promise<D>
-    val?: (value: D, proxy?: M, context?: LogicNodeContext) => void|string,
-    errorwatch?: "peers"//boolean|{target: "peers"|string|LogicNode, accept: (prev: string, next: string) => string },
-    vstrategy?: ValidationStrategy
-}) => 
-    function <IP extends {model: M, data?: D, error?: string, context?: LogicNodeContext}, S, SS, OP extends Omit<IP,"data"|"error"|"context">, X={}>
-       (clazz: (( new (props: IP) => React.Component<IP, S, SS>&X ) | ( (props: IP) => any )) ) : BoundComponent<OP&{model: M}, S, SS, X, M, D>
-    {
-        let {errorwatch, ...rest} = settings||{errorwatch: false};
-        let field = new Field(rest)
-        return class extends LogicContextAdapter<M, any, any, any> {
-            field = field
-            wrapped = class extends Connected<M, IP, S, D> {
-                wrapped = errorwatch ? class extends Errorwatch<M, IP, S> {wrapped = clazz} as any : clazz
-            }
-            static get field() { return field }
-        } as any
-    }
 
 export const Connect = <M, D>(field: Field<M, D>) =>
     function <IP extends {model: M, data?: D, error?: string, context?: LogicNodeContext}, S, SS, OP extends Omit<IP,"data"|"error"|"context">, X={}>
@@ -281,6 +262,22 @@ export const Connect = <M, D>(field: Field<M, D>) =>
             static get field() { return field }
         } as any
     }
+    
+export const Create = <M extends IArfSet, D=M> (settings?: {
+    get?: (proxy: M, context: LogicNodeContext) => D, // |Promise<D>
+    val?: (value: D, proxy?: M, context?: LogicNodeContext) => void|string,
+    errorwatch?: "peers"//boolean|{target: "peers"|string|LogicNode, accept: (prev: string, next: string) => string },
+    vstrategy?: ValidationStrategy
+}) => {
+    let {errorwatch, ...rest} = settings||{errorwatch: false};
+    let field = new Field(rest)
+    let connect = Connect(field)
+    // todo add field so it s possible to write Create({....}).field
+    return <IP extends {model: M, data?: D, error?: string, context?: LogicNodeContext}, S, SS, OP extends Omit<IP,"data"|"error"|"context">, X={}>
+       (clazz: (( new (props: IP) => React.Component<IP, S, SS>&X ) | ( (props: IP) => any )) ) =>
+          connect(errorwatch ? class extends Errorwatch<M, IP, S> {wrapped = clazz} as any : clazz) as BoundComponent<OP&{model: M}, S, SS, X, M, D>
+}
+
 
 export function SwitchPipe<M extends IArfSet>(test: (model: M) => boolean)/*: PipeClass<{model: M, children: React.ReactNode}, {}, {}, {}, M, M>&{otherwise: () => PipeClass<{model: M, children: React.ReactNode}, {}, {}, {}, M, M>}*/ {
     let ret = Create({get: (model: M) => test(model) ? model : null })(

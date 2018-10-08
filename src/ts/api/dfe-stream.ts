@@ -92,7 +92,7 @@ export class Field<P extends IArfSet, C=P> {
         Object.assign( this, props );
     }
     with(...args: Field<ArrayItem<C>, any>[]): this {
-        this.children = args.reduce((out, cur) => out.concat(cur), []).filter(o => o instanceof Field);
+        args.forEach(field => this.children.indexOf(field) === -1 && this.children.push(field));
         return this;
     }
 }
