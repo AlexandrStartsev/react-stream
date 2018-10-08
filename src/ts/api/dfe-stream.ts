@@ -195,7 +195,7 @@ export class LogicNode implements PipeNode, Subscriber {
     }
 }
 
-export class LogicProcessor<M={}> {
+export class LogicProcessor<M=IArfSet> {
     scheduledWork: any
     rootModel: M
     rootNode: LogicNode

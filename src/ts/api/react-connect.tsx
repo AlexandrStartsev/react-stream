@@ -11,7 +11,7 @@ export const LogicContextProvider = lcp as React.ComponentType<React.ProviderPro
  * 
  * LogicContextAdapter is used as a superclass for higher order components. It wraps Connected and Proxified components. 
  * 
- * Main function is to retrive instance LogicProcessor assigned to react subtree and current model and pass it to Connected components. 
+ * Main function is to find model and logic node corresponding to current react subtree and pass it to Connected components as props. 
  
  * If necessary it re-creates context with new model, if latter was explicitly provided. 
  * Logic processor's root model will be used if no model is available in context. 
@@ -21,26 +21,22 @@ export const LogicContextProvider = lcp as React.ComponentType<React.ProviderPro
  *  
  */
 
-class LogicContextAdapter<M extends IArfSet, P extends {logic: LogicProcessor, model: M, field: Field<any, any>}, S, SS> extends React.Component<{model?: M}> {
-    type: new (props: P) => React.Component<P, S, SS>
-    field: Field<any, any>
+class LogicContextAdapter<M extends IArfSet, P, S, SS> extends React.Component<{model?: M}> {
+    readonly wrapped: new (props: {source?: LogicNode, model: M}) => React.Component<{source?: LogicNode, model: M}, S, SS>
+    readonly field: Field<any, any>
 
     shouldComponentUpdate(nextProps: Readonly<{model: M}>) {
         return this.props.model !== nextProps.model && (!this.props.model || !nextProps.model || this.props.model.key !== nextProps.model.key);
     }
     render() {
-        const Type = this.type as any, own = this.props.model;
+        const Wrapped = this.wrapped, own = this.props.model;
         return (
             <LogicContextConsumer>{
                 ctx => {
-                    if(own) {
-                        return (
-                            <LogicContextProvider value={{logic: ctx.logic, model: own}}>
-                                <Type {...this.props} logic={ctx.logic} model={own} field={this.field}/>
-                            </LogicContextProvider>
-                        )
-                    }
-                    return <Type {...this.props} logic={ctx.logic} model={ctx.model||ctx.logic.rootModel} field={this.field}/>
+                    const model = (own || ctx.model || ctx.logic.rootModel) as M;
+                    const source = this.field ? ctx.logic.findNode(model.key, this.field) : null;
+                    const element = <Wrapped {...this.props} source={source} model={model}/>
+                    return own ? <LogicContextProvider value={{logic: ctx.logic, model: model}} children={element}/> : element;
                 }
             }</LogicContextConsumer>
         )
@@ -75,7 +71,7 @@ function compareIgnoreModel<M, P extends {model: M & ModelProxy<M>}>(props: P, n
  */
 
 class Proxified<M extends IArfSet, P extends {model: M}, S={}, SS=any, X={}> extends React.Component<P & {model: ModelProxy<M>}, {model: ModelProxy<M>, subscription: Subscription}> implements Subscriber {
-    type: ((new (props: P) => React.Component<P, S, SS>) | ((props: P) => any))&X
+    readonly wrapped: ((new (props: P) => React.Component<P, S, SS>) | ((props: P) => any))&X
     
     constructor(props: P & {model: ModelProxy<M>}) {
         super(props);
@@ -92,8 +88,8 @@ class Proxified<M extends IArfSet, P extends {model: M}, S={}, SS=any, X={}> ext
         return nextState.model !== this.state.model || compareIgnoreModel(this.props, nextProps);
     }
     render() {
-        const Type = this.type;
-        return <Type {...this.props} model={this.state.model}/>
+        const Wrapped = this.wrapped;
+        return <Wrapped {...this.props} model={this.state.model}/>
     }
     notify() {
         this.setState({model: this.props.model.withSubscription(this.state.subscription)})
@@ -103,8 +99,9 @@ class Proxified<M extends IArfSet, P extends {model: M}, S={}, SS=any, X={}> ext
 export const Proxify = <M extends IArfSet, P extends {model: M}, S={}, SS=any, X={}>
   (clazz: ((new (props: P) => React.Component<P, S, SS>) | ((props: P) => any))&X ) =>
     class extends LogicContextAdapter<any, any, any, any> {
-        type = class extends Proxified<M, P, S, SS> {
-            type = clazz
+        field: Field<any, any> = null
+        wrapped = class extends Proxified<M, P, S, SS> {
+            wrapped = clazz
         }
     } as any as (new (props: Omit<P,"model">&{model?: M}) => React.Component<Omit<P,"model">&{model?: M}, S, SS>)&X
 
@@ -120,36 +117,37 @@ export const Proxify = <M extends IArfSet, P extends {model: M}, S={}, SS=any, X
  */
 
 class Connected<M extends IArfSet, P extends {model: M, data?: D, error?: string, context?: LogicNodeContext}, S, D> 
-            extends React.Component<{logic: LogicProcessor, model: M & ModelProxy<M>, field: Field<M, D>},
-                            {model: M & ModelProxy<M>, data?: D, error?: string, subscription: Subscription, source: LogicNode, self: any}> implements PipeNode, Subscriber {
+            extends React.Component<{source: LogicNode, model: M & ModelProxy<M>},
+                            {model: M & ModelProxy<M>, data?: D, error?: string, subscription: Subscription, source: LogicNode, self: PipeNode}> implements PipeNode, Subscriber {
     
-    type: (new (props: P) => React.Component<P, S>) | ((props: P) => any)
+    readonly wrapped: (new (props: P) => React.Component<P, S>) | ((props: P) => any)
     
     private constructed: boolean
 
-    constructor(props: {logic: LogicProcessor, model: M & ModelProxy<M>, field: Field<M, D>}) {
+    constructor(props: {source: LogicNode, model: M & ModelProxy<M>}) {
         super(props);
         let subscription = new Subscription(props.model, this)
-        this.state = {source: props.logic.findNode(props.model.key, props.field), model: props.model.withSubscription(subscription), subscription: subscription, self: this}
+        this.state = {source: props.source, model: props.model.withSubscription(subscription), subscription: subscription, self: this}
         this.state.source.subscribe(this);
         this.constructed = true;
     }
-    static getDerivedStateFromProps<M>(nextProps: {logic: LogicProcessor, model: M & ModelProxy<M>, field: Field<M, any>}, prevState: {model: M & ModelProxy<M>, subscription: Subscription, source: PipeNode, self: any}) {
-        if( prevState.model.key !== nextProps.model.key ) {
+    static getDerivedStateFromProps<M>(nextProps: {source: LogicNode, model: M & ModelProxy<M>}, prevState: {model: M & ModelProxy<M>, subscription: Subscription, source: LogicNode, self: PipeNode}) {
+        // NOTE: model is also the same if source is the same, so no need to check them separately
+        if( prevState.source !== nextProps.source ) {
             prevState.subscription.clear();
-            let nextState = { model: nextProps.model.withSubscription(prevState.subscription), source: nextProps.logic.findNode(nextProps.model.key, nextProps.field) }
+            let nextState = { model: nextProps.model.withSubscription(prevState.subscription), source: nextProps.source }
             prevState.source.unsubscribe(prevState.self);
-            nextState.source.subscribe(prevState.self)
+            nextProps.source.subscribe(prevState.self)
             return nextState;
         }
         return null;
     }
-    shouldComponentUpdate(nextProps: Readonly<{logic: LogicProcessor, model: M & ModelProxy<M>, field: Field<M, D>}>, nextState: Readonly<{model: M & ModelProxy<M>, data?: D, error?: string, subscription: Subscription, source: PipeNode, self: any}>): boolean {
+    shouldComponentUpdate(nextProps: Readonly<{source: LogicNode, model: M & ModelProxy<M>}>, nextState: Readonly<{model: M & ModelProxy<M>, data?: D, error?: string, subscription: Subscription, source: PipeNode, self: any}>): boolean {
         return this.state.data !== nextState.data || this.state.error !== nextState.error || this.state.model !== nextState.model || compareIgnoreModel(this.props, nextProps);
     }
     render() {
-        const Type = this.type;
-        return this.state.data === undefined ? null : <Type {...this.props} model={this.state.model} data={this.state.data} error={this.state.error} context={this.state.source.context}/>
+        const Wrapped = this.wrapped;
+        return this.state.data === undefined ? null : <Wrapped {...this.props} model={this.state.model} data={this.state.data} error={this.state.error} context={this.state.source.context}/>
     }
     accept(data: any, error: string) {
         if(this.constructed) {
@@ -184,7 +182,6 @@ class Connected<M extends IArfSet, P extends {model: M, data?: D, error?: string
  * 
  * Errorwatch will subscribe to relevant logic nodes, continously updating subscription as necessary 
  * 
- * 
  */
 
 // TODO: if props.model changes ...
@@ -192,12 +189,12 @@ class Errorwatch<M extends IArfSet, P extends {model: M, data?: any, context?: L
     state = {error: ""}
     private nextState: {error: string} = {error: ""}
     private pendingNextState: any = null;
-
-    subscriptions = new Set<PipeNode>()
-    erroring = new Set<PipeNode>()
-    type: (new (props: P) => React.Component<P, S>) | ((props: P) => any)
     private constructed = false
     private enabled = false
+
+    readonly subscriptions = new Set<PipeNode>()
+    readonly erroring = new Set<PipeNode>()
+    readonly wrapped: (new (props: P) => React.Component<P, S>) | ((props: P) => any)
     constructor(props: P) {
         super(props);
         const myNode = props.context.node;
@@ -211,8 +208,8 @@ class Errorwatch<M extends IArfSet, P extends {model: M, data?: any, context?: L
         this.constructed = true;
     }
     render() {
-        const Type = this.type;
-        return <Type {...this.props} model={this.props.model} data={this.props.data} error={this.state.error} context={this.props.context}/>
+        const Wrapped = this.wrapped;
+        return <Wrapped {...this.props} model={this.props.model} data={this.props.data} error={this.state.error} context={this.props.context}/>
     }
     accept(data: any, error: string, producer: LogicNode) {
         if(this.enabled || (this.enabled = producer.lastNotifications.some(n => n.action === "validate"))) {
@@ -247,26 +244,26 @@ class Errorwatch<M extends IArfSet, P extends {model: M, data?: any, context?: L
     }
 }
 
-type PipeClass<OP extends {model: M}, S, SS, X, M, D> = (new (props: OP) => React.Component<Omit<OP,"model">&{model?: M}, S, SS>&X) & {
+type BoundComponent<OP extends {model: M}, S, SS, X, M, D> = (new (props: OP) => React.Component<Omit<OP,"model">&{model?: M}, S, SS>&X) & {
     field: Field<M,D>,
-    to: (...other: (typeof React.Component)[]) => PipeClass<OP, S, SS, X, M, D>
+    to: (...other: (typeof React.Component)[]) => BoundComponent<OP, S, SS, X, M, D>
 }
 
-export const Pipe = <M extends IArfSet, D=M> (settings?: {
+export const Create = <M extends IArfSet, D=M> (settings?: {
     get?: (proxy: M, context: LogicNodeContext) => D, // |Promise<D>
     val?: (value: D, proxy?: M, context?: LogicNodeContext) => void|string,
     errorwatch?: "peers"//boolean|{target: "peers"|string|LogicNode, accept: (prev: string, next: string) => string },
     vstrategy?: ValidationStrategy
 }) => 
     function <IP extends {model: M, data?: D, error?: string, context?: LogicNodeContext}, S, SS, OP extends Omit<IP,"data"|"error"|"context">, X={}>
-       (clazz: (( new (props: IP) => React.Component<IP, S, SS>&X ) | ( (props: IP) => any )) ) : PipeClass<OP&{model: M}, S, SS, X, M, D>
+       (clazz: (( new (props: IP) => React.Component<IP, S, SS>&X ) | ( (props: IP) => any )) ) : BoundComponent<OP&{model: M}, S, SS, X, M, D>
     {
         let {errorwatch, ...rest} = settings||{errorwatch: false};
         let field = new Field(rest)
         return class extends LogicContextAdapter<M, any, any, any> {
             field = field
-            type = class extends Connected<M, IP, S, D> {
-                type = errorwatch ? class extends Errorwatch<M, IP, S> {type = clazz} as any : clazz
+            wrapped = class extends Connected<M, IP, S, D> {
+                wrapped = errorwatch ? class extends Errorwatch<M, IP, S> {wrapped = clazz} as any : clazz
             }
             static get field() { return field }
         } as any
@@ -274,19 +271,19 @@ export const Pipe = <M extends IArfSet, D=M> (settings?: {
 
 export const Connect = <M, D>(field: Field<M, D>) =>
     function <IP extends {model: M, data?: D, error?: string, context?: LogicNodeContext}, S, SS, OP extends Omit<IP,"data"|"error"|"context">, X={}>
-    (clazz: (( new (props: IP) => React.Component<IP, S, SS>&X ) | ( (props: IP) => any )) ) : PipeClass<OP&{model: M}, S, SS, X, M, D>
+    (clazz: (( new (props: IP) => React.Component<IP, S, SS>&X ) | ( (props: IP) => any )) ) : BoundComponent<OP&{model: M}, S, SS, X, M, D>
     {
         return class extends LogicContextAdapter<M, any, any, any> {
             field = field
-            type = class extends Connected<M, IP, S, D> {
-                type = clazz
+            wrapped = class extends Connected<M, IP, S, D> {
+                wrapped = clazz
             }
             static get field() { return field }
         } as any
     }
 
 export function SwitchPipe<M extends IArfSet>(test: (model: M) => boolean)/*: PipeClass<{model: M, children: React.ReactNode}, {}, {}, {}, M, M>&{otherwise: () => PipeClass<{model: M, children: React.ReactNode}, {}, {}, {}, M, M>}*/ {
-    let ret = Pipe({get: (model: M) => test(model) ? model : null })(
+    let ret = Create({get: (model: M) => test(model) ? model : null })(
         (props: {model: M, children: React.ReactNode, data: M}) => props.data ? props.children : null
     );
     //(ret as any).otherwise = () => SwitchPipe((m: M) => !test(m));
