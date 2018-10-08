@@ -10,6 +10,7 @@ import { ChoiceInfo, required } from "../api/utils"
 
 import "../../../resources/dfe-style.css";
 import "./quote.cmau.car.css"
+import { Errorwatch } from "./errorwarch";
 
 
 if (typeof window !== "undefined") {
@@ -180,17 +181,6 @@ const LocationTabComponent = Create({get: (root: ICoreCommVs) => root.policy.cma
     />
 )
 
-const LocationHeaderComponent = Create<ICoreCommCmauLocationVs>({errorwatch: "peers"})(
-    (props: {model: ICoreCommCmauLocationVs, data?: ICoreCommCmauLocationVs, error?: string, index: number}) =>
-    <div className="div-button">
-        <label className="div-button-text">
-            <a style={{color: "#444"}}>{`Location #${props.index + 1}`}</a><br/>
-            {`${props.data.city} ${props.data.state} ${props.data.zip}-${props.data.zipAddOn}`.replace(/-$/, '')}
-            <ValidationLabel error={props.error}/>
-        </label>
-    </div>
-)
-
 let focusVin = false;
 const LocationBodyComponent = Create<ICoreCommCmauLocationVs>()((props: {model: ICoreCommCmauLocationVs, index: number}) =>
     <React.Fragment>
@@ -204,6 +194,17 @@ const LocationBodyComponent = Create<ICoreCommCmauLocationVs>()((props: {model: 
     </React.Fragment>
 )
 
+const LocationHeaderComponent = Create<ICoreCommCmauLocationVs>()(Errorwatch(LocationBodyComponent.field)(
+    (props: {model: ICoreCommCmauLocationVs, data?: ICoreCommCmauLocationVs, error?: string, index: number}) =>
+    <div className="div-button">
+        <label className="div-button-text">
+            <a style={{color: "#444"}}>{`Location #${props.index + 1}`}</a><br/>
+            {`${props.data.city} ${props.data.state} ${props.data.zip}-${props.data.zipAddOn}`.replace(/-$/, '')}
+            <ValidationLabel error={props.error}/>
+        </label>
+    </div>
+))
+
 const CarTabComponent = Create({get: (loc: ICoreCommCmauLocationVs) => loc.cars})(props => 
     <TabComponent 
         style={{width: "100%"}}
@@ -215,16 +216,6 @@ const CarTabComponent = Create({get: (loc: ICoreCommCmauLocationVs) => loc.cars}
         headerFactory={(car, _, index) => <CarHeaderComponent model={car} index={index}/>}
         bodyFactory={(car, index) => <CarBodyComponent key={car.key} model={car} index={index}/>}
     />
-)
- 
-const CarHeaderComponent = Create<ICoreCommCmauCarVs>({errorwatch: "peers"})(
-    (props: {model: ICoreCommCmauCarVs, data?: ICoreCommCmauCarVs, error?: string, index: number}) =>
-    <div className="div-button">
-        <label className="div-button-text">
-            {`${props.data.p.state} - Vehicle #${props.index + 1}`}<br/>{`${props.data.modelYr} ${props.data.make}`}
-            <ValidationLabel error={props.error}/>
-        </label>
-    </div>
 )
 
 const CarSectionHeader = (props: {index: number}) => <div className="inline-section-header"><div>{"Vehicle #" + (props.index + 1)}</div></div>
@@ -238,6 +229,7 @@ const CarControls = Proxify((props: {model: ICoreCommCmauCarVs}) =>
         </div>
     </div>
 )
+
 const CarBodyComponent = Create<ICoreCommCmauCarVs>()((props: {model: ICoreCommCmauCarVs, index: number}) =>
     <React.Fragment>
         <CarSectionHeader index={props.index}/>
@@ -259,6 +251,16 @@ const CarBodyComponent = Create<ICoreCommCmauCarVs>()((props: {model: ICoreCommC
         <CarControls/>
     </React.Fragment>
 )
+
+const CarHeaderComponent = Create<ICoreCommCmauCarVs>()(Errorwatch(CarBodyComponent.field)(
+    (props: {model: ICoreCommCmauCarVs, data?: ICoreCommCmauCarVs, error?: string, index: number}) =>
+    <div className="div-button">
+        <label className="div-button-text">
+            {`${props.data.p.state} - Vehicle #${props.index + 1}`}<br/>{`${props.data.modelYr} ${props.data.make}`}
+            <ValidationLabel error={props.error}/>
+        </label>
+    </div>
+))
 
 namespace GenInfo {
     const DoYouHaveVinComponent = Proxify((props: {model: ICoreCommCmauCarVs}) => <tr><td>Do you have the VIN?</td><td><Radiolist data={{value: props.model.hasvin, items: YesNoItems}} set={value => props.model.hasvin = value}/></td></tr>)
