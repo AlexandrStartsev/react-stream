@@ -218,7 +218,7 @@ const CarTabComponent = Create({get: (loc: ICoreCommCmauLocationVs) => loc.cars}
     />
 )
 
-const CarSectionHeader = (props: {index: number}) => <div className="inline-section-header"><div>{"Vehicle #" + (props.index + 1)}</div></div>
+const CarSectionHeader = (props: {index: number}) => <div className="inline-section-header"><div>{"Vehicle 123#" + (props.index + 1)}</div></div>
 const CarControls = Proxify((props: {model: ICoreCommCmauCarVs}) => 
     <div className="inline-section-header" style={{display: "inline-block", width: "100%", boxSizing: "border-box"}}>
         <div style={{display: "inline-block", float: "right"}}>
@@ -376,7 +376,7 @@ namespace Private {
         label: "Operator Use",
         labelStyle: {paddingLeft: 16}
     })(props => <Dropdown {...props}/>)
-    
+
     const PPNonBusSwitch = MakeSwitch(car => car.vehUseCd === VehicleUse.NonBusiness).to(OperatorExperienceComponent, OperatorUseComponent);
 
     export const Sheet = Create<ICoreCommCmauCarVs>() (props => 

@@ -26,7 +26,7 @@ class LogicContextAdapter<M extends IArfSet, P, S, SS> extends React.Component<{
     readonly field: Field<any, any>
 
     shouldComponentUpdate(nextProps: Readonly<{model: M}>) {
-        return this.props.model !== nextProps.model && (!this.props.model || !nextProps.model || this.props.model.key !== nextProps.model.key);
+        return this.props.model !== nextProps.model && (!this.props.model || !nextProps.model || this.props.model.key !== nextProps.model.key) || compareIgnoreModel(this.props, nextProps);
     }
     render() {
         const Wrapped = this.wrapped, own = this.props.model;
@@ -53,7 +53,7 @@ export const LogicAccess = <P extends {logic: LogicProcessor}, S, X>
   (Clazz: ((new (props: P) => React.Component<P, S>) | ((props: P) => any))&X ) =>
     (props: Omit<P,"logic">) => <LogicContextConsumer>{ctx => <Clazz {...props} logic={ctx.logic}/>}</LogicContextConsumer>
 
-function compareIgnoreModel<M, P extends {model: M & ModelProxy<M>}>(props: P, nextProps: P) {
+function compareIgnoreModel<M, P extends {model: M}>(props: Partial<P>, nextProps: Partial<P>) {
     let names = Object.getOwnPropertyNames(nextProps);
     if( names.length !== Object.getOwnPropertyNames(props).length ) {
         return true;

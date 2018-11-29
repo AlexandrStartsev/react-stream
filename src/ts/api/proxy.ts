@@ -203,7 +203,7 @@ export class ModelProxy<T extends IArfSet & {[index: string]: any}> implements I
     withSubscription(subscription?: Subscription): this {
         let ctor = this.constructor as new (data: {}, listener: Subscription, parent: ModelProxy<any>, parentCollection: string, single: boolean) => this;
         let ret = new ctor(this.$data, subscription, this.$parent, this.$parentCollection, this.$single);
-        this.$persisted = this.$persisted;
+        ret.$persisted = this.$persisted;
         return ret;
     }
     @Enumerable(false)
